@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { CheckCircle, XCircle } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { db, doc, updateDoc } from "@/lib/firebase";
 
 type PartnerApprovalActionsProps = {
   restaurantId: string;
@@ -16,21 +16,21 @@ export default function PartnerApprovalActions({
   const router = useRouter();
 
   async function updateStatus(status: "approved" | "rejected") {
-    await supabase
-      .from("restaurants")
-      .update({ approval_status: status })
-      .eq("id", restaurantId);
+    try {
+      await updateDoc(doc(db, "restaurants", restaurantId), {
+        approval_status: status,
+      });
 
-    if (ownerId) {
-      await supabase
-        .from("profiles")
-        .update({
+      if (ownerId) {
+        await updateDoc(doc(db, "profiles", ownerId), {
           partner_status: status,
-        })
-        .eq("id", ownerId);
-    }
+        });
+      }
 
-    router.refresh();
+      router.refresh();
+    } catch (error: any) {
+      console.error("Error updating approval status:", error);
+    }
   }
 
   return (

@@ -14,7 +14,20 @@ import { PointerEvent, useEffect, useRef, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  doc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  onAuthStateChanged,
+} from "@/lib/firebase";
 
 type Restaurant = {
   id: string;
@@ -168,64 +181,61 @@ export default function PartnerFloorPlanPage() {
     tables.find((table) => table.id === selectedTableId) || null;
 
   useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-
-      const { data: userData } = await supabase.auth.getUser();
-
-      if (!userData.user) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
         setRestaurant(null);
         setTables([]);
         setIsLoading(false);
         return;
       }
 
-      const { data: restaurantData, error: restaurantError } = await supabase
-        .from("restaurants")
-        .select("id, name, city, cuisine_type")
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(
+          collection(db, "restaurants"),
+          where("owner_id", "==", user.uid)
+        );
+        const rSnap = await getDocs(rQuery);
 
-      if (restaurantError || !restaurantData) {
-        setRestaurant(null);
-        setTables([]);
+        if (rSnap.empty) {
+          setRestaurant(null);
+          setTables([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const rDoc = rSnap.docs[0];
+        const rData = { id: rDoc.id, ...rDoc.data() } as Restaurant;
+        setRestaurant(rData);
+
+        const tQuery = query(
+          collection(db, "tables"),
+          where("restaurant_id", "==", rData.id)
+        );
+
+        const unsubTables = onSnapshot(tQuery, (tSnap) => {
+          const tableList: EditableTable[] = tSnap.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          })) as EditableTable[];
+
+          setTables(tableList);
+          setIsLoading(false);
+        });
+
+        return () => unsubTables();
+      } catch (error: any) {
+        console.error("Error loading floor plan:", error);
         setIsLoading(false);
-        return;
       }
+    });
 
-      setRestaurant(restaurantData as Restaurant);
-
-      const { data: tableData, error: tableError } = await supabase
-        .from("restaurant_tables")
-        .select(
-          "id, restaurant_id, table_name, seats, zone, status, shape, position_x, position_y, width, height, rotation, color"
-        )
-        .eq("restaurant_id", restaurantData.id)
-        .order("table_name", { ascending: true });
-
-      if (tableError) {
-        console.error("Tables error:", tableError.message);
-        setTables([]);
-        setIsLoading(false);
-        return;
-      }
-
-      setTables((tableData || []) as EditableTable[]);
-      setIsLoading(false);
-    }
-
-    loadData();
+    return () => unsubscribe();
   }, []);
 
   function getTableShape(table: EditableTable) {
     if (table.shape === "circle") {
       return "rounded-full";
     }
-
-    if (table.shape === "diamond") {
-      return "rounded-2xl";
-    }
-
     return "rounded-2xl";
   }
 
@@ -326,71 +336,62 @@ export default function PartnerFloorPlanPage() {
     }
 
     const nextNumber = tables.length + 1;
+    const newTableData = {
+      restaurant_id: restaurant.id,
+      table_name: `T${nextNumber}`,
+      seats: 2,
+      zone: "Zone 1",
+      status: "available",
+      shape: "square",
+      position_x: 80 + (tables.length % 4) * 130,
+      position_y: 90 + Math.floor(tables.length / 4) * 130,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      color: "#38bdf8",
+    };
 
-    const { data, error } = await supabase
-      .from("restaurant_tables")
-      .insert({
-        restaurant_id: restaurant.id,
-        table_name: `T${nextNumber}`,
-        seats: 2,
-        zone: "Zone 1",
-        status: "available",
-        shape: "square",
-        position_x: 80 + (tables.length % 4) * 130,
-        position_y: 90 + Math.floor(tables.length / 4) * 130,
-        width: 100,
-        height: 100,
-        rotation: 0,
-        color: "#38bdf8",
-      })
-      .select(
-        "id, restaurant_id, table_name, seats, zone, status, shape, position_x, position_y, width, height, rotation, color"
-      )
-      .single();
+    try {
+      const docRef = await addDoc(collection(db, "tables"), newTableData);
+      const createdTable: EditableTable = { id: docRef.id, ...newTableData };
 
-    if (error) {
-      setMessage(error.message);
-      return;
+      setTables((currentTables) => [...currentTables, createdTable]);
+      setSelectedTableId(createdTable.id);
+      setMessage("");
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error adding table.");
     }
-
-    const newTable = data as EditableTable;
-
-    setTables((currentTables) => [...currentTables, newTable]);
-    setSelectedTableId(newTable.id);
-    setMessage("");
   }
 
   async function handleSaveLayout() {
     setIsSaving(true);
     setMessage("");
 
-    for (const table of tables) {
-      const { error } = await supabase
-        .from("restaurant_tables")
-        .update({
+    try {
+      for (const table of tables) {
+        const tableRef = doc(db, "tables", table.id);
+        await updateDoc(tableRef, {
           table_name: table.table_name,
           seats: Number(table.seats),
-          zone: table.zone,
+          zone: table.zone || "Zone 1",
           status: table.status,
-          shape: table.shape,
+          shape: table.shape || "square",
           position_x: Number(table.position_x || 0),
           position_y: Number(table.position_y || 0),
           width: Number(table.width || 100),
           height: Number(table.height || 100),
           rotation: Number(table.rotation || 0),
           color: table.color || "#38bdf8",
-        })
-        .eq("id", table.id);
-
-      if (error) {
-        setMessage(error.message);
-        setIsSaving(false);
-        return;
+        });
       }
+      setMessage(text.saved);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error saving floor map.");
+    } finally {
+      setIsSaving(false);
     }
-
-    setMessage(text.saved);
-    setIsSaving(false);
   }
 
   async function handleDeleteTable() {
@@ -398,22 +399,17 @@ export default function PartnerFloorPlanPage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("restaurant_tables")
-      .delete()
-      .eq("id", selectedTable.id);
-
-    if (error) {
-      setMessage(error.message);
-      return;
+    try {
+      await deleteDoc(doc(db, "tables", selectedTable.id));
+      setTables((currentTables) =>
+        currentTables.filter((table) => table.id !== selectedTable.id)
+      );
+      setSelectedTableId("");
+      setMessage("");
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error deleting table.");
     }
-
-    setTables((currentTables) =>
-      currentTables.filter((table) => table.id !== selectedTable.id)
-    );
-
-    setSelectedTableId("");
-    setMessage("");
   }
 
   if (isLoading) {
@@ -557,13 +553,7 @@ export default function PartnerFloorPlanPage() {
             <div className="border-b border-sky-100 bg-white p-4">
               <div className="flex flex-wrap gap-3">
                 <button className="rounded-2xl bg-sky-500 px-5 py-3 font-black text-white">
-                  Zone 1
-                </button>
-                <button className="rounded-2xl bg-gray-100 px-5 py-3 font-black text-gray-600">
-                  Zone 2
-                </button>
-                <button className="rounded-2xl bg-gray-100 px-5 py-3 font-black text-gray-600">
-                  Zone 3
+                  Main Hall
                 </button>
               </div>
             </div>
@@ -585,9 +575,6 @@ export default function PartnerFloorPlanPage() {
               />
 
               <div className="absolute left-10 top-20 h-[470px] w-[88%] rounded-[2rem] border-[10px] border-gray-200 opacity-70" />
-              <div className="absolute left-[18%] top-[12%] h-8 w-[58%] bg-gray-200 opacity-60" />
-              <div className="absolute left-[22%] top-[54%] h-8 w-[20%] rotate-[-42deg] bg-gray-200 opacity-60" />
-              <div className="absolute left-[58%] top-[26%] h-8 w-[22%] rotate-[-45deg] bg-gray-200 opacity-60" />
 
               {tables.map((table) => {
                 const width = table.width || 100;
@@ -774,63 +761,10 @@ export default function PartnerFloorPlanPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.rotation}
-                    </label>
-                    <input
-                      type="number"
-                      value={selectedTable.rotation || 0}
-                      onChange={(event) =>
-                        updateSelectedTable(
-                          "rotation",
-                          Number(event.target.value)
-                        )
-                      }
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="mb-2 block text-sm font-bold text-gray-700">
-                        {text.positionX}
-                      </label>
-                      <input
-                        type="number"
-                        value={selectedTable.position_x || 0}
-                        onChange={(event) =>
-                          updateSelectedTable(
-                            "position_x",
-                            Number(event.target.value)
-                          )
-                        }
-                        className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-bold text-gray-700">
-                        {text.positionY}
-                      </label>
-                      <input
-                        type="number"
-                        value={selectedTable.position_y || 0}
-                        onChange={(event) =>
-                          updateSelectedTable(
-                            "position_y",
-                            Number(event.target.value)
-                          )
-                        }
-                        className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                      />
-                    </div>
-                  </div>
-
                   <button
                     type="button"
                     onClick={handleDeleteTable}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-5 py-3 font-black text-white hover:bg-red-600"
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 py-3 font-bold text-red-600 hover:bg-red-100"
                   >
                     <Trash2 size={18} />
                     {text.deleteTable}
@@ -838,12 +772,7 @@ export default function PartnerFloorPlanPage() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-3xl bg-orange-50 p-6 text-center">
-                <Armchair className="mx-auto text-orange-500" size={40} />
-                <h2 className="mt-4 text-xl font-black text-gray-950">
-                  {text.selectTable}
-                </h2>
-              </div>
+              <p className="text-gray-500">{text.selectTable}</p>
             )}
           </aside>
         </div>

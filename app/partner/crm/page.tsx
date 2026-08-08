@@ -11,19 +11,27 @@ import {
   LogOut,
   Map,
   MessageSquare,
-  Phone,
   Plus,
   Settings,
   Star,
   Users,
   Utensils,
-  X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  onAuthStateChanged,
+  signOut,
+} from "@/lib/firebase";
 
 type GuestNote = {
   id: string;
@@ -138,126 +146,104 @@ export default function PartnerCRMPage() {
   const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      setIsLoading(true);
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) { router.push("/login"); return; }
-
-      const { data: restaurant } = await supabase
-        .from("restaurants")
-        .select("id, name")
-        .eq("owner_id", userData.user.id)
-        .single();
-
-      if (!restaurant) { setIsLoading(false); return; }
-      setRestaurantId(restaurant.id);
-      setRestaurantName(restaurant.name);
-
-      // Get all bookings for this restaurant with user profiles
-      const { data: bookingData } = await supabase
-        .from("bookings")
-        .select("id, user_id, booking_date, booking_time, guests_count, status, occasion, special_notes")
-        .eq("restaurant_id", restaurant.id)
-        .order("booking_date", { ascending: false });
-
-      if (!bookingData || bookingData.length === 0) {
-        setCustomers([]);
-        setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
         return;
       }
 
-      // Get unique user IDs
-      const userIds = [...new Set(bookingData.map((b) => b.user_id).filter(Boolean))];
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      // Get profiles
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, full_name, total_points, loyalty_tier")
-        .in("id", userIds);
+        if (rSnap.empty) {
+          setIsLoading(false);
+          return;
+        }
 
-      // Get loyalty points
-      const { data: loyaltyData } = await supabase
-        .from("loyalty_points")
-        .select("user_id, points, total_visits, last_visit")
-        .eq("restaurant_id", restaurant.id)
-        .in("user_id", userIds);
+        const rDoc = rSnap.docs[0];
+        const rId = rDoc.id;
+        setRestaurantId(rId);
+        setRestaurantName(rDoc.data().name || "Restaurant");
 
-      // Get guest notes
-      const { data: notesData } = await supabase
-        .from("guest_notes")
-        .select("id, user_id, note, created_at")
-        .eq("restaurant_id", restaurant.id)
-        .order("created_at", { ascending: false });
+        const bQuery = query(collection(db, "bookings"), where("restaurant_id", "==", rId));
+        const bSnap = await getDocs(bQuery);
 
-      // Build customer map
-      const customerMap: Record<string, Customer> = {};
+        if (bSnap.empty) {
+          setCustomers([]);
+          setIsLoading(false);
+          return;
+        }
 
-      for (const uid of userIds) {
-        const profile = profiles?.find((p) => p.id === uid);
-        const loyalty = loyaltyData?.find((l) => l.user_id === uid);
-        const userNotes = (notesData ?? [])
-          .filter((n) => n.user_id === uid)
-          .map((n) => ({ id: n.id, note: n.note, created_at: n.created_at }));
+        const bookingList = bSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as any[];
+        const customerMap: Record<string, Customer> = {};
 
-        customerMap[uid] = {
-          user_id: uid,
-          full_name: profile?.full_name ?? null,
-          total_visits: loyalty?.total_visits ?? 0,
-          total_points: profile?.total_points ?? loyalty?.points ?? 0,
-          loyalty_tier: profile?.loyalty_tier ?? "bronze",
-          last_visit: loyalty?.last_visit ?? null,
-          bookings: [],
-          notes: userNotes,
-        };
-      }
-
-      for (const b of bookingData) {
-        if (b.user_id && customerMap[b.user_id]) {
-          customerMap[b.user_id].bookings.push({
+        for (const b of bookingList) {
+          const cId = b.customer_id || b.customer_name || "Guest";
+          if (!customerMap[cId]) {
+            customerMap[cId] = {
+              user_id: cId,
+              full_name: b.customer_name || "Customer",
+              total_visits: 0,
+              total_points: 100,
+              loyalty_tier: "bronze",
+              last_visit: b.booking_date || null,
+              bookings: [],
+              notes: [],
+            };
+          }
+          customerMap[cId].total_visits += 1;
+          customerMap[cId].bookings.push({
             id: b.id,
-            booking_date: b.booking_date,
-            booking_time: b.booking_time,
-            guests_count: b.guests_count,
-            status: b.status,
-            occasion: b.occasion,
-            special_notes: b.special_notes,
+            booking_date: b.booking_date || "",
+            booking_time: b.booking_time || "",
+            guests_count: b.guests_count || 1,
+            status: b.status || "pending",
+            occasion: b.occasion || null,
+            special_notes: b.notes || null,
           });
         }
-      }
 
-      setCustomers(Object.values(customerMap).sort((a, b) => b.total_visits - a.total_visits));
-      setIsLoading(false);
-    }
-    load();
+        setCustomers(Object.values(customerMap).sort((a, b) => b.total_visits - a.total_visits));
+      } catch (error) {
+        console.error("CRM error:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
   }, [router]);
 
   async function handleSaveNote(userId: string) {
     if (!restaurantId || !noteInput[userId]?.trim()) return;
     setSavingNote(true);
-    await supabase.from("guest_notes").insert({
-      restaurant_id: restaurantId,
-      user_id: userId,
-      note: noteInput[userId].trim(),
-    });
-    setNoteInput((prev) => ({ ...prev, [userId]: "" }));
-    setAddingNote(null);
-    setSavingNote(false);
-    // refresh notes
-    const { data: fresh } = await supabase
-      .from("guest_notes")
-      .select("id, user_id, note, created_at")
-      .eq("restaurant_id", restaurantId)
-      .order("created_at", { ascending: false });
-    setCustomers((prev) =>
-      prev.map((c) => ({
-        ...c,
-        notes: (fresh ?? []).filter((n) => n.user_id === c.user_id).map((n) => ({ id: n.id, note: n.note, created_at: n.created_at })),
-      }))
-    );
+    try {
+      const newNote = {
+        restaurant_id: restaurantId,
+        user_id: userId,
+        note: noteInput[userId].trim(),
+        created_at: new Date().toISOString(),
+      };
+      const docRef = await addDoc(collection(db, "guest_notes"), newNote);
+      const created: GuestNote = { id: docRef.id, note: newNote.note, created_at: newNote.created_at };
+
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.user_id === userId ? { ...c, notes: [created, ...c.notes] } : c
+        )
+      );
+      setNoteInput((prev) => ({ ...prev, [userId]: "" }));
+      setAddingNote(null);
+    } catch (error) {
+      console.error("Error saving note:", error);
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await signOut(auth);
     router.push("/login");
   }
 
@@ -266,7 +252,7 @@ export default function PartnerCRMPage() {
     { label: text.bookings, icon: CalendarDays, href: "/partner/bookings" },
     { label: text.floorMap, icon: Map, href: "/partner/floor-plan" },
     { label: text.menu, icon: ClipboardList, href: "/partner/menu" },
-    { label: text.analytics, icon: ChartLine, href: "/partner/analytics" },
+    { label: text.analytics, icon: ChartLine, href: "/partner/analyitcs" },
     { label: text.crm, icon: Users, href: "/partner/crm", active: true },
     { label: text.settings, icon: Settings, href: "/partner/settings" },
   ];
@@ -277,7 +263,6 @@ export default function PartnerCRMPage() {
 
   return (
     <main className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
       <aside className="hidden w-64 flex-col bg-[#07111f] p-6 text-white lg:flex">
         <Link href="/" className="mb-10 flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500">
@@ -310,7 +295,6 @@ export default function PartnerCRMPage() {
         </div>
       </aside>
 
-      {/* Main */}
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
           <div>
@@ -338,7 +322,6 @@ export default function PartnerCRMPage() {
             </div>
           ) : (
             <>
-              {/* Search */}
               <div className="mb-6">
                 <input
                   type="text"
@@ -349,7 +332,6 @@ export default function PartnerCRMPage() {
                 />
               </div>
 
-              {/* Stats row */}
               <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {[
                   { label: "Total customers", value: customers.length, icon: Users },
@@ -365,7 +347,6 @@ export default function PartnerCRMPage() {
                 ))}
               </div>
 
-              {/* Customer list */}
               <div className="space-y-4">
                 {filtered.map((customer) => {
                   const isExpanded = expandedId === customer.user_id;
@@ -373,7 +354,6 @@ export default function PartnerCRMPage() {
 
                   return (
                     <div key={customer.user_id} className="rounded-3xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                      {/* Customer header */}
                       <button
                         type="button"
                         onClick={() => setExpandedId(isExpanded ? null : customer.user_id)}
@@ -393,12 +373,6 @@ export default function PartnerCRMPage() {
                               </span>
                               <span>·</span>
                               <span>{customer.total_points} {text.points}</span>
-                              {customer.last_visit && (
-                                <>
-                                  <span>·</span>
-                                  <span>{text.lastVisit}: {new Date(customer.last_visit).toLocaleDateString()}</span>
-                                </>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -413,11 +387,9 @@ export default function PartnerCRMPage() {
                         </div>
                       </button>
 
-                      {/* Expanded section */}
                       {isExpanded && (
                         <div className="border-t border-gray-100 px-6 pb-6 pt-4">
                           <div className="grid gap-6 lg:grid-cols-2">
-                            {/* Booking history */}
                             <div>
                               <h3 className="mb-3 text-sm font-black text-gray-700">{text.bookingHistory}</h3>
                               {customer.bookings.length === 0 ? (
@@ -432,12 +404,6 @@ export default function PartnerCRMPage() {
                                             {b.booking_date} · {b.booking_time}
                                           </p>
                                           <p className="text-xs text-gray-500">{b.guests_count} guests</p>
-                                          {b.occasion && b.occasion !== "none" && (
-                                            <p className="text-xs text-orange-600 mt-0.5">{text.occasion}: {b.occasion}</p>
-                                          )}
-                                          {b.special_notes && (
-                                            <p className="text-xs text-gray-500 mt-0.5 italic">{text.notes}: {b.special_notes}</p>
-                                          )}
                                         </div>
                                         <span className={`rounded-full px-2 py-1 text-xs font-black ${statusStyle(b.status)}`}>
                                           {b.status}
@@ -449,7 +415,6 @@ export default function PartnerCRMPage() {
                               )}
                             </div>
 
-                            {/* Notes */}
                             <div>
                               <div className="mb-3 flex items-center justify-between">
                                 <h3 className="text-sm font-black text-gray-700">Partner Notes</h3>
@@ -482,13 +447,6 @@ export default function PartnerCRMPage() {
                                       {savingNote && <Loader2 size={12} className="animate-spin" />}
                                       {text.saveNote}
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setAddingNote(null)}
-                                      className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
-                                    >
-                                      {text.cancel}
-                                    </button>
                                   </div>
                                 </div>
                               )}
@@ -500,9 +458,6 @@ export default function PartnerCRMPage() {
                                   {customer.notes.map((note) => (
                                     <div key={note.id} className="rounded-xl bg-orange-50 px-4 py-3">
                                       <p className="text-sm text-gray-700">{note.note}</p>
-                                      <p className="mt-1 text-xs text-gray-400">
-                                        {new Date(note.created_at).toLocaleDateString()}
-                                      </p>
                                     </div>
                                   ))}
                                 </div>

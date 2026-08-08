@@ -16,18 +16,22 @@ import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import PartnerBookingActions from "@/components/PartnerBookingActions";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  onSnapshot,
+  onAuthStateChanged,
+} from "@/lib/firebase";
 
 type Restaurant = {
   id: string;
   name: string;
   city: string | null;
   cuisine_type: string | null;
-};
-
-type RestaurantTableRelation = {
-  table_name: string;
-  seats: number;
 };
 
 type Booking = {
@@ -40,7 +44,7 @@ type Booking = {
   guests_count: number;
   status: string;
   notes: string | null;
-  restaurant_tables: RestaurantTableRelation[] | RestaurantTableRelation | null;
+  table_name?: string | null;
 };
 
 const pageText = {
@@ -128,20 +132,6 @@ function getStatusStyle(status: string) {
   return "bg-orange-50 text-orange-700";
 }
 
-function getBookingTable(
-  restaurantTables: Booking["restaurant_tables"]
-): RestaurantTableRelation | null {
-  if (!restaurantTables) {
-    return null;
-  }
-
-  if (Array.isArray(restaurantTables)) {
-    return restaurantTables[0] || null;
-  }
-
-  return restaurantTables;
-}
-
 export default function PartnerBookingsPage() {
   const { language } = useLanguage();
   const text = pageText[language];
@@ -152,12 +142,8 @@ export default function PartnerBookingsPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(true);
 
   useEffect(() => {
-    async function loadPartnerBookings() {
-      setIsLoading(true);
-
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-
-      if (userError || !userData.user) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
         setIsLoggedIn(false);
         setRestaurant(null);
         setBookings([]);
@@ -167,55 +153,52 @@ export default function PartnerBookingsPage() {
 
       setIsLoggedIn(true);
 
-      const { data: restaurantData, error: restaurantError } = await supabase
-        .from("restaurants")
-        .select("id, name, city, cuisine_type")
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      if (restaurantError || !restaurantData) {
-        setRestaurant(null);
-        setBookings([]);
+        if (rSnap.empty) {
+          setRestaurant(null);
+          setBookings([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const rDoc = rSnap.docs[0];
+        const rData = { id: rDoc.id, ...rDoc.data() } as Restaurant;
+        setRestaurant(rData);
+
+        const bQuery = query(
+          collection(db, "bookings"),
+          where("restaurant_id", "==", rData.id)
+        );
+
+        const unsubBookings = onSnapshot(bQuery, (bSnap) => {
+          const bookingList: Booking[] = bSnap.docs.map((d) => ({
+            id: d.id,
+            customer_name: d.data().customer_name || null,
+            customer_phone: d.data().customer_phone || null,
+            customer_email: d.data().customer_email || null,
+            booking_date: d.data().booking_date || "",
+            booking_time: d.data().booking_time || "",
+            guests_count: d.data().guests_count || 1,
+            status: d.data().status || "pending",
+            notes: d.data().notes || null,
+            table_name: d.data().table_name || null,
+          }));
+
+          setBookings(bookingList);
+          setIsLoading(false);
+        });
+
+        return () => unsubBookings();
+      } catch (error) {
+        console.error("Error loading partner bookings:", error);
         setIsLoading(false);
-        return;
       }
+    });
 
-      setRestaurant(restaurantData as Restaurant);
-
-      const { data: bookingData, error: bookingError } = await supabase
-        .from("bookings")
-        .select(
-          `
-          id,
-          customer_name,
-          customer_phone,
-          customer_email,
-          booking_date,
-          booking_time,
-          guests_count,
-          status,
-          notes,
-          restaurant_tables (
-            table_name,
-            seats
-          )
-        `
-        )
-        .eq("restaurant_id", restaurantData.id)
-        .order("created_at", { ascending: false });
-
-      if (bookingError) {
-        console.error("Partner bookings error:", bookingError.message);
-        setBookings([]);
-        setIsLoading(false);
-        return;
-      }
-
-      setBookings((bookingData || []) as unknown as Booking[]);
-      setIsLoading(false);
-    }
-
-    loadPartnerBookings();
+    return () => unsubscribe();
   }, []);
 
   if (isLoading) {
@@ -349,8 +332,6 @@ export default function PartnerBookingsPage() {
         ) : (
           <div className="grid gap-5">
             {bookings.map((booking) => {
-              const bookingTable = getBookingTable(booking.restaurant_tables);
-
               return (
                 <div
                   key={booking.id}
@@ -395,7 +376,7 @@ export default function PartnerBookingsPage() {
 
                         <span className="flex items-center gap-2">
                           <Table2 size={17} />
-                          {text.table}: {bookingTable?.table_name || "N/A"}
+                          {text.table}: {booking.table_name || "N/A"}
                         </span>
                       </div>
 

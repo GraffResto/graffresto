@@ -11,14 +11,23 @@ import {
   LogOut,
   MapPin,
   Percent,
-  Star,
   Utensils,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  onAuthStateChanged,
+  signOut,
+  getUserProfile,
+} from "@/lib/firebase";
 
 type Restaurant = {
   id: string;
@@ -77,7 +86,7 @@ const t = {
     nearbyTitle: "Рестораны в Ташкенте",
     dealsTitle: "Активные акции и скидки",
     noDeals: "Активных акций пока нет.",
-    noRestaurants: "Рестораны не найдены.",
+    noRestaurants: "Ресторан не найдены.",
     loading: "Загрузка...", open: "Открыто", closed: "Закрыто",
     off: "скидка", until: "До", bookNow: "Забронировать", viewAll: "Все рестораны",
     customer: "Клиент",
@@ -95,50 +104,60 @@ export default function UserExplorePage() {
   const [fullName, setFullName] = useState("");
 
   useEffect(() => {
-    async function load() {
-      setIsLoading(true);
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) { router.push("/login"); return; }
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
 
-      const { data: profile } = await supabase
-        .from("profiles").select("full_name").eq("id", userData.user.id).single();
-      setFullName(profile?.full_name ?? "");
+      try {
+        const profile = await getUserProfile(user.uid);
+        setFullName(profile?.full_name || user.displayName || "Customer");
 
-      const [restRes, promoRes] = await Promise.all([
-        supabase.from("restaurants")
-          .select("id, name, cuisine_type, city, image_url, is_open, opening_time, closing_time")
-          .eq("approval_status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(12),
-        supabase.from("promotions")
-          .select("id, title, description, discount_percent, ends_at, restaurant_id, restaurants(name, image_url)")
-          .eq("is_active", true)
-          .order("created_at", { ascending: false }),
-      ]);
+        const restSnap = await getDocs(
+          query(collection(db, "restaurants"), where("approval_status", "==", "approved"))
+        );
+        const restList: Restaurant[] = restSnap.docs.map((docSnap) => ({
+          id: docSnap.id,
+          name: docSnap.data().name || "Restaurant",
+          cuisine_type: docSnap.data().cuisine_type || null,
+          city: docSnap.data().city || null,
+          image_url: docSnap.data().image_url || null,
+          is_open: docSnap.data().is_open ?? true,
+          opening_time: docSnap.data().opening_time || null,
+          closing_time: docSnap.data().closing_time || null,
+        }));
+        setRestaurants(restList);
 
-      setRestaurants((restRes.data ?? []) as Restaurant[]);
+        const promoSnap = await getDocs(
+          query(collection(db, "promotions"), where("is_active", "==", true))
+        );
+        const promoList: Promotion[] = promoSnap.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            title: data.title || "Special Offer",
+            description: data.description || null,
+            discount_percent: data.discount_percent || 10,
+            ends_at: data.ends_at || null,
+            restaurant_id: data.restaurant_id || "",
+            restaurant_name: data.restaurant_name || "Restaurant",
+            restaurant_image: data.restaurant_image || null,
+          };
+        });
+        setPromotions(promoList);
+      } catch (error) {
+        console.error("Error loading explore data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    });
 
-      const promos = (promoRes.data ?? []).map((p) => {
-        const r = p.restaurants as { name: string; image_url: string | null } | null;
-        return {
-          id: p.id,
-          title: p.title,
-          description: p.description,
-          discount_percent: p.discount_percent,
-          ends_at: p.ends_at,
-          restaurant_id: p.restaurant_id,
-          restaurant_name: r?.name ?? "Restaurant",
-          restaurant_image: r?.image_url ?? null,
-        };
-      });
-      setPromotions(promos);
-      setIsLoading(false);
-    }
-    load();
+    return () => unsubscribe();
   }, [router]);
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await signOut(auth);
     router.push("/login");
   }
 

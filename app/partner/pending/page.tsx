@@ -60,17 +60,26 @@ export default function PartnerPendingPage() {
 
           <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
             <Link
+              href="/partner/onboarding"
+              className="rounded-2xl bg-orange-500 px-8 py-4 text-lg font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 flex items-center justify-center gap-2"
+            >
+              Start Restaurant & Table Setup (Onboarding) →
+            </Link>
+          </div>
+
+          <div className="mt-4 flex flex-col justify-center gap-4 sm:flex-row">
+            <Link
               href="/"
-              className="rounded-2xl border border-orange-200 px-6 py-3 font-black text-orange-600 hover:bg-orange-50"
+              className="rounded-2xl border border-orange-200 px-6 py-3 font-bold text-orange-600 hover:bg-orange-50"
             >
               Back to Home
             </Link>
 
             <Link
-              href="/login"
-              className="rounded-2xl bg-orange-500 px-6 py-3 font-black text-white hover:bg-orange-600"
+              href="/partner/floor-plan"
+              className="rounded-2xl border border-gray-200 px-6 py-3 font-bold text-gray-700 hover:bg-gray-50"
             >
-              Login Again Later
+              Open Drag & Drop Floor Map
             </Link>
           </div>
         </div>

@@ -3,7 +3,7 @@
 import { CheckCircle, Loader2, XCircle, CircleCheckBig } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { db, doc, updateDoc } from "@/lib/firebase";
 import { useLanguage } from "@/components/LanguageProvider";
 
 type PartnerBookingActionsProps = {
@@ -45,21 +45,16 @@ export default function PartnerBookingActions({
   async function updateBookingStatus(nextStatus: string) {
     setLoadingStatus(nextStatus);
 
-    const { error } = await supabase
-      .from("bookings")
-      .update({
+    try {
+      await updateDoc(doc(db, "bookings", bookingId), {
         status: nextStatus,
-      })
-      .eq("id", bookingId);
-
-    if (error) {
-      alert(error.message);
+      });
+      router.refresh();
+    } catch (error: any) {
+      alert(error?.message || "Error updating booking");
+    } finally {
       setLoadingStatus(null);
-      return;
     }
-
-    setLoadingStatus(null);
-    router.refresh();
   }
 
   return (

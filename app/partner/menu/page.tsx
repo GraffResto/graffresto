@@ -15,7 +15,19 @@ import { useEffect, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  doc,
+  updateDoc,
+  deleteDoc,
+  onAuthStateChanged,
+} from "@/lib/firebase";
 
 type Restaurant = {
   id: string;
@@ -151,53 +163,49 @@ export default function PartnerMenuPage() {
     menuItems.find((item) => item.id === selectedItemId) || null;
 
   useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-
-      const { data: userData } = await supabase.auth.getUser();
-
-      if (!userData.user) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
         setRestaurant(null);
         setMenuItems([]);
         setIsLoading(false);
         return;
       }
 
-      const { data: restaurantData, error: restaurantError } = await supabase
-        .from("restaurants")
-        .select("id, name, city, cuisine_type")
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      if (restaurantError || !restaurantData) {
-        setRestaurant(null);
-        setMenuItems([]);
+        if (rSnap.empty) {
+          setRestaurant(null);
+          setMenuItems([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const rDoc = rSnap.docs[0];
+        const rData = { id: rDoc.id, ...rDoc.data() } as Restaurant;
+        setRestaurant(rData);
+
+        const mQuery = query(
+          collection(db, "menu_items"),
+          where("restaurant_id", "==", rData.id)
+        );
+        const mSnap = await getDocs(mQuery);
+
+        const itemList: MenuItem[] = mSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        })) as MenuItem[];
+
+        setMenuItems(itemList);
+      } catch (error) {
+        console.error("Menu error:", error);
+      } finally {
         setIsLoading(false);
-        return;
       }
+    });
 
-      setRestaurant(restaurantData as Restaurant);
-
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("menu_items")
-        .select(
-          "id, restaurant_id, name, description, category, price, image_url, is_available"
-        )
-        .eq("restaurant_id", restaurantData.id)
-        .order("created_at", { ascending: false });
-
-      if (itemsError) {
-        console.error("Menu error:", itemsError.message);
-        setMenuItems([]);
-        setIsLoading(false);
-        return;
-      }
-
-      setMenuItems((itemsData || []) as MenuItem[]);
-      setIsLoading(false);
-    }
-
-    loadData();
+    return () => unsubscribe();
   }, []);
 
   function updateSelectedItem<K extends keyof MenuItem>(
@@ -225,61 +233,53 @@ export default function PartnerMenuPage() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("menu_items")
-      .insert({
-        restaurant_id: restaurant.id,
-        name: "New Dish",
-        description: "Describe this dish.",
-        category: "Main",
-        price: 25000,
-        image_url:
-          "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1200&auto=format&fit=crop",
-        is_available: true,
-      })
-      .select(
-        "id, restaurant_id, name, description, category, price, image_url, is_available"
-      )
-      .single();
+    const newItemData = {
+      restaurant_id: restaurant.id,
+      name: "New Dish",
+      description: "Describe this dish.",
+      category: "Main",
+      price: 25000,
+      image_url:
+        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1200&auto=format&fit=crop",
+      is_available: true,
+      created_at: new Date().toISOString(),
+    };
 
-    if (error) {
-      setMessage(error.message);
-      return;
+    try {
+      const docRef = await addDoc(collection(db, "menu_items"), newItemData);
+      const createdItem: MenuItem = { id: docRef.id, ...newItemData };
+
+      setMenuItems((currentItems) => [createdItem, ...currentItems]);
+      setSelectedItemId(createdItem.id);
+      setMessage("");
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error adding item.");
     }
-
-    const newItem = data as MenuItem;
-
-    setMenuItems((currentItems) => [newItem, ...currentItems]);
-    setSelectedItemId(newItem.id);
-    setMessage("");
   }
 
   async function handleSaveChanges() {
     setIsSaving(true);
     setMessage("");
 
-    for (const item of menuItems) {
-      const { error } = await supabase
-        .from("menu_items")
-        .update({
+    try {
+      for (const item of menuItems) {
+        await updateDoc(doc(db, "menu_items", item.id), {
           name: item.name,
           description: item.description,
           category: item.category,
           price: Number(item.price),
           image_url: item.image_url,
           is_available: item.is_available,
-        })
-        .eq("id", item.id);
-
-      if (error) {
-        setMessage(error.message);
-        setIsSaving(false);
-        return;
+        });
       }
+      setMessage(text.saved);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error saving menu.");
+    } finally {
+      setIsSaving(false);
     }
-
-    setMessage(text.saved);
-    setIsSaving(false);
   }
 
   async function handleDeleteItem() {
@@ -287,22 +287,17 @@ export default function PartnerMenuPage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("menu_items")
-      .delete()
-      .eq("id", selectedItem.id);
-
-    if (error) {
-      setMessage(error.message);
-      return;
+    try {
+      await deleteDoc(doc(db, "menu_items", selectedItem.id));
+      setMenuItems((currentItems) =>
+        currentItems.filter((item) => item.id !== selectedItem.id)
+      );
+      setSelectedItemId("");
+      setMessage("");
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error deleting item.");
     }
-
-    setMenuItems((currentItems) =>
-      currentItems.filter((item) => item.id !== selectedItem.id)
-    );
-
-    setSelectedItemId("");
-    setMessage("");
   }
 
   if (isLoading) {

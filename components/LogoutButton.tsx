@@ -2,13 +2,13 @@
 
 import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { auth, signOut } from "@/lib/firebase";
 
 export default function LogoutButton() {
   const router = useRouter();
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await signOut(auth);
     router.push("/login");
     router.refresh();
   }

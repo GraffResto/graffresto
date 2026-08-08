@@ -16,7 +16,17 @@ import { useEffect, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  updateDoc,
+  onAuthStateChanged,
+} from "@/lib/firebase";
 
 type Restaurant = {
   id: string;
@@ -174,49 +184,45 @@ export default function PartnerSettingsPage() {
   const [isOpen, setIsOpen] = useState(true);
 
   useEffect(() => {
-    async function loadRestaurant() {
-      setIsLoading(true);
-
-      const { data: userData } = await supabase.auth.getUser();
-
-      if (!userData.user) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
         setRestaurant(null);
         setIsLoading(false);
         return;
       }
 
-      const { data, error } = await supabase
-        .from("restaurants")
-        .select(
-          "id, owner_id, name, description, cuisine_type, address, city, phone, image_url, opening_time, closing_time, is_open, approval_status"
-        )
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      if (error || !data) {
-        setRestaurant(null);
+        if (rSnap.empty) {
+          setRestaurant(null);
+          setIsLoading(false);
+          return;
+        }
+
+        const rDoc = rSnap.docs[0];
+        const rData = { id: rDoc.id, ...rDoc.data() } as Restaurant;
+
+        setRestaurant(rData);
+        setName(rData.name || "");
+        setDescription(rData.description || "");
+        setCuisineType(rData.cuisine_type || "");
+        setCity(rData.city || "");
+        setAddress(rData.address || "");
+        setPhone(rData.phone || "");
+        setImageUrl(rData.image_url || "");
+        setOpeningTime(rData.opening_time || "09:00");
+        setClosingTime(rData.closing_time || "23:00");
+        setIsOpen(Boolean(rData.is_open ?? true));
+      } catch (error) {
+        console.error("Settings load error:", error);
+      } finally {
         setIsLoading(false);
-        return;
       }
+    });
 
-      const restaurantData = data as Restaurant;
-
-      setRestaurant(restaurantData);
-      setName(restaurantData.name || "");
-      setDescription(restaurantData.description || "");
-      setCuisineType(restaurantData.cuisine_type || "");
-      setCity(restaurantData.city || "");
-      setAddress(restaurantData.address || "");
-      setPhone(restaurantData.phone || "");
-      setImageUrl(restaurantData.image_url || "");
-      setOpeningTime(restaurantData.opening_time || "09:00");
-      setClosingTime(restaurantData.closing_time || "23:00");
-      setIsOpen(Boolean(restaurantData.is_open));
-
-      setIsLoading(false);
-    }
-
-    loadRestaurant();
+    return () => unsubscribe();
   }, []);
 
   async function handleSave() {
@@ -227,9 +233,8 @@ export default function PartnerSettingsPage() {
     setIsSaving(true);
     setMessage("");
 
-    const { error } = await supabase
-      .from("restaurants")
-      .update({
+    try {
+      await updateDoc(doc(db, "restaurants", restaurant.id), {
         name,
         description,
         cuisine_type: cuisineType,
@@ -240,31 +245,29 @@ export default function PartnerSettingsPage() {
         opening_time: openingTime,
         closing_time: closingTime,
         is_open: isOpen,
-      })
-      .eq("id", restaurant.id);
+      });
 
-    if (error) {
-      setMessage(error.message);
+      setRestaurant({
+        ...restaurant,
+        name,
+        description,
+        cuisine_type: cuisineType,
+        city,
+        address,
+        phone,
+        image_url: imageUrl,
+        opening_time: openingTime,
+        closing_time: closingTime,
+        is_open: isOpen,
+      });
+
+      setMessage(text.saved);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Error saving restaurant settings.");
+    } finally {
       setIsSaving(false);
-      return;
     }
-
-    setRestaurant({
-      ...restaurant,
-      name,
-      description,
-      cuisine_type: cuisineType,
-      city,
-      address,
-      phone,
-      image_url: imageUrl,
-      opening_time: openingTime,
-      closing_time: closingTime,
-      is_open: isOpen,
-    });
-
-    setMessage(text.saved);
-    setIsSaving(false);
   }
 
   if (isLoading) {

@@ -2,24 +2,56 @@
 
 import Link from "next/link";
 import {
-  Bell,
+  AlertCircle,
+  BarChart3,
+  Calendar,
   CalendarDays,
-  ChartLine,
-  ClipboardList,
+  CheckCircle,
+  Clock,
+  DollarSign,
+  FileText,
+  HelpCircle,
+  HelpCircle as HelpIcon,
   LayoutDashboard,
   Loader2,
   LogOut,
-  Map,
+  MapPin,
+  MessageSquare,
+  MessageSquarePlus,
+  Plus,
+  Printer,
+  RefreshCw,
+  Search,
   Settings,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+  Store,
   Table2,
+  UserCheck,
+  UserPlus,
   Users,
   Utensils,
+  Volume2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  doc,
+  updateDoc,
+  onSnapshot,
+  onAuthStateChanged,
+  signOut,
+} from "@/lib/firebase";
 
 type QuickStats = {
   totalBookings: number;
@@ -27,343 +59,669 @@ type QuickStats = {
   todayBookings: number;
   totalTables: number;
   menuItems: number;
+  attendanceRate: number;
+  totalGuests: number;
+  totalRevenue: number;
 };
 
-type RecentBooking = {
+type BookingItem = {
   id: string;
-  customer_name: string | null;
+  customer_name: string;
+  customer_phone?: string;
   booking_date: string;
   booking_time: string;
   guests_count: number;
+  table_name?: string;
   status: string;
+  type?: "online" | "offline";
 };
 
-const t = {
-  en: {
-    panel: "Partner Panel",
-    welcome: "Welcome back",
-    subtitle: "Here's what's happening at your restaurant today.",
-    dashboard: "Dashboard",
-    bookings: "Bookings",
-    floorMap: "Floor Map",
-    menu: "Menu",
-    analytics: "Analytics",
-    settings: "Settings",
-    logout: "Logout",
-    totalBookings: "Total Bookings",
-    todayBookings: "Today",
-    pending: "Pending",
-    tables: "Tables",
-    menuItems: "Menu Items",
-    recentBookings: "Recent Bookings",
-    viewAll: "View all",
-    noBookings: "No bookings yet.",
-    loading: "Loading...",
-    guests: "guests",
-    quickActions: "Quick Actions",
-    manageBookings: "Manage bookings",
-    addTable: "Edit floor map",
-    addDish: "Add a dish",
-    viewAnalytics: "View analytics",
-    ownerLabel: "Restaurant Owner",
-  },
-  uz: {
-    panel: "Hamkor paneli",
-    welcome: "Xush kelibsiz",
-    subtitle: "Bugun restoraningizda nima bo'lyapti.",
-    dashboard: "Dashboard",
-    bookings: "Bronlar",
-    floorMap: "Floor Map",
-    menu: "Menyu",
-    analytics: "Tahlil",
-    settings: "Sozlamalar",
-    logout: "Chiqish",
-    totalBookings: "Jami bronlar",
-    todayBookings: "Bugun",
-    pending: "Kutilmoqda",
-    tables: "Stollar",
-    menuItems: "Menyu itemlari",
-    recentBookings: "So'nggi bronlar",
-    viewAll: "Barchasini ko'rish",
-    noBookings: "Hali bron yo'q.",
-    loading: "Yuklanmoqda...",
-    guests: "mehmon",
-    quickActions: "Tezkor amallar",
-    manageBookings: "Bronlarni boshqarish",
-    addTable: "Floor mapni tahrirlash",
-    addDish: "Taom qo'shish",
-    viewAnalytics: "Tahlilni ko'rish",
-    ownerLabel: "Restoran egasi",
-  },
-  ru: {
-    panel: "Партнёрский кабинет",
-    welcome: "Добро пожаловать",
-    subtitle: "Вот что происходит в вашем ресторане сегодня.",
-    dashboard: "Дэшборд",
-    bookings: "Брони",
-    floorMap: "План зала",
-    menu: "Меню",
-    analytics: "Аналитика",
-    settings: "Настройки",
-    logout: "Выйти",
-    totalBookings: "Всего бронирований",
-    todayBookings: "Сегодня",
-    pending: "В ожидании",
-    tables: "Столов",
-    menuItems: "Блюд в меню",
-    recentBookings: "Последние брони",
-    viewAll: "Смотреть все",
-    noBookings: "Бронирований пока нет.",
-    loading: "Загрузка...",
-    guests: "гостей",
-    quickActions: "Быстрые действия",
-    manageBookings: "Управлять бронями",
-    addTable: "Редактировать план зала",
-    addDish: "Добавить блюдо",
-    viewAnalytics: "Открыть аналитику",
-    ownerLabel: "Владелец ресторана",
-  },
+type StaffItem = {
+  id?: string;
+  name: string;
+  role: "Waiter" | "Hostess" | "Chef" | "Manager";
+  phone: string;
+  status: "Active" | "Off-duty";
 };
 
-function statusStyle(status: string) {
-  if (status === "confirmed" || status === "approved") return "bg-green-100 text-green-700";
-  if (status === "cancelled") return "bg-red-100 text-red-700";
-  if (status === "completed") return "bg-blue-100 text-blue-700";
-  return "bg-orange-100 text-orange-700";
-}
+type GuestRecord = {
+  name: string;
+  phone: string;
+  totalVisits: number;
+  lastVisit: string;
+  vipStatus: boolean;
+};
 
 export default function PartnerDashboardPage() {
-  const { language } = useLanguage();
-  const text = t[language];
   const router = useRouter();
+  const { language } = useLanguage();
 
-  const [restaurantName, setRestaurantName] = useState("");
-  const [stats, setStats] = useState<QuickStats | null>(null);
-  const [recentBookings, setRecentBookings] = useState<RecentBooking[]>([]);
+  // Active Menu Branch matching the flowchart diagram
+  const [activeBranch, setActiveBranch] = useState<
+    "home" | "floormap_menu" | "guest_staff" | "analytics" | "settings" | "help_feedback"
+  >("home");
+
+  const [activeSubTab, setActiveSubTab] = useState<string>("recent_online");
   const [isLoading, setIsLoading] = useState(true);
+  const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  const [restaurantName, setRestaurantName] = useState("My Restaurant");
+
+  // Stats & Collections
+  const [stats, setStats] = useState<QuickStats>({
+    totalBookings: 0,
+    pendingBookings: 0,
+    todayBookings: 0,
+    totalTables: 0,
+    menuItems: 0,
+    attendanceRate: 94,
+    totalGuests: 0,
+    totalRevenue: 0,
+  });
+
+  const [bookings, setBookings] = useState<BookingItem[]>([]);
+  const [staffList, setStaffList] = useState<StaffItem[]>([
+    { name: "Alexey V.", role: "Manager", phone: "+998 90 123 45 67", status: "Active" },
+    { name: "Malika K.", role: "Hostess", phone: "+998 90 987 65 43", status: "Active" },
+    { name: "Javohir T.", role: "Chef", phone: "+998 91 555 44 33", status: "Active" },
+  ]);
+  const [guestBook, setGuestBook] = useState<GuestRecord[]>([
+    { name: "Farangiz E.", phone: "+998 90 111 22 33", totalVisits: 8, lastVisit: "2026-08-08", vipStatus: true },
+    { name: "Rustam M.", phone: "+998 93 444 55 66", totalVisits: 4, lastVisit: "2026-08-07", vipStatus: false },
+  ]);
+
+  // Offline Booking Modal
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
+  const [offlineName, setOfflineName] = useState("");
+  const [offlinePhone, setOfflinePhone] = useState("");
+  const [offlineDate, setOfflineDate] = useState(new Date().toISOString().split("T")[0]);
+  const [offlineTime, setOfflineTime] = useState("19:00");
+  const [offlineGuests, setOfflineGuests] = useState(2);
+  const [offlineTable, setOfflineTable] = useState("T1");
+
+  // Feedback Form State
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSuccess, setFeedbackSuccess] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      setIsLoading(true);
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) { router.push("/login"); return; }
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
 
-      const { data: restaurant } = await supabase
-        .from("restaurants")
-        .select("id, name")
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      if (!restaurant) { setIsLoading(false); return; }
-      setRestaurantName(restaurant.name);
+        if (rSnap.empty) {
+          router.push("/register/partner");
+          return;
+        }
 
-      const today = new Date().toISOString().split("T")[0];
+        const rDoc = rSnap.docs[0];
+        const rData = rDoc.data();
+        const rId = rDoc.id;
 
-      const [allBookings, todayBookings, tables, menu] = await Promise.all([
-        supabase.from("bookings").select("id, status").eq("restaurant_id", restaurant.id),
-        supabase.from("bookings").select("id").eq("restaurant_id", restaurant.id).eq("booking_date", today),
-        supabase.from("restaurant_tables").select("id").eq("restaurant_id", restaurant.id),
-        supabase.from("menu_items").select("id").eq("restaurant_id", restaurant.id),
-      ]);
+        setRestaurantId(rId);
+        setRestaurantName(rData.name || "My Restaurant");
 
-      const bookingList = allBookings.data ?? [];
-      setStats({
-        totalBookings: bookingList.length,
-        pendingBookings: bookingList.filter((b) => b.status === "pending").length,
-        todayBookings: todayBookings.data?.length ?? 0,
-        totalTables: tables.data?.length ?? 0,
-        menuItems: menu.data?.length ?? 0,
-      });
+        const todayStr = new Date().toISOString().split("T")[0];
 
-      const { data: recent } = await supabase
-        .from("bookings")
-        .select("id, customer_name, booking_date, booking_time, guests_count, status")
-        .eq("restaurant_id", restaurant.id)
-        .order("created_at", { ascending: false })
-        .limit(5);
+        // Real-time Firestore Listeners
+        const unsubBookings = onSnapshot(
+          query(collection(db, "bookings"), where("restaurant_id", "==", rId)),
+          (bSnap) => {
+            const bList: BookingItem[] = bSnap.docs.map((d) => ({
+              id: d.id,
+              customer_name: d.data().customer_name || "Guest",
+              customer_phone: d.data().customer_phone || "",
+              booking_date: d.data().booking_date || "",
+              booking_time: d.data().booking_time || "",
+              guests_count: d.data().guests_count || 1,
+              table_name: d.data().table_name || "T1",
+              status: d.data().status || "pending",
+              type: d.data().type || "online",
+            }));
 
-      setRecentBookings((recent ?? []) as RecentBooking[]);
-      setIsLoading(false);
-    }
-    load();
+            setBookings(bList);
+            const totalG = bList.reduce((acc, b) => acc + (b.guests_count || 1), 0);
+
+            setStats((prev) => ({
+              ...prev,
+              totalBookings: bList.length,
+              pendingBookings: bList.filter((b) => b.status === "pending").length,
+              todayBookings: bList.filter((b) => b.booking_date === todayStr).length,
+              totalGuests: totalG,
+              totalRevenue: totalG * 25,
+            }));
+            setIsLoading(false);
+          }
+        );
+
+        return () => unsubBookings();
+      } catch (err) {
+        console.error("Partner dashboard load error:", err);
+        setIsLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
   }, [router]);
 
+  async function handleCreateOfflineBooking(e: React.FormEvent) {
+    e.preventDefault();
+    if (!offlineName || !restaurantId) return;
+
+    try {
+      await addDoc(collection(db, "bookings"), {
+        restaurant_id: restaurantId,
+        customer_name: offlineName,
+        customer_phone: offlinePhone,
+        booking_date: offlineDate,
+        booking_time: offlineTime,
+        guests_count: offlineGuests,
+        table_name: offlineTable,
+        status: "approved",
+        type: "offline",
+        created_at: new Date().toISOString(),
+      });
+
+      setShowOfflineModal(false);
+      setOfflineName("");
+      setOfflinePhone("");
+    } catch (err) {
+      console.error("Error creating offline booking:", err);
+    }
+  }
+
+  async function handleSendFeedback(e: React.FormEvent) {
+    e.preventDefault();
+    if (!feedbackText.trim()) return;
+
+    try {
+      await addDoc(collection(db, "partner_feedbacks"), {
+        restaurant_id: restaurantId,
+        restaurant_name: restaurantName,
+        feedback: feedbackText,
+        created_at: new Date().toISOString(),
+      });
+      setFeedbackText("");
+      setFeedbackSuccess(true);
+      setTimeout(() => setFeedbackSuccess(false), 3000);
+    } catch (err) {
+      console.error("Error sending feedback:", err);
+    }
+  }
+
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await signOut(auth);
     router.push("/login");
   }
 
-  const navItems = [
-    { label: text.dashboard, icon: LayoutDashboard, href: "/partner", active: true },
-    { label: text.bookings, icon: CalendarDays, href: "/partner/bookings" },
-    { label: text.floorMap, icon: Map, href: "/partner/floor-plan" },
-    { label: text.menu, icon: ClipboardList, href: "/partner/menu" },
-    { label: text.analytics, icon: ChartLine, href: "/partner/analytics" },
-    { label: text.settings, icon: Settings, href: "/partner/settings" },
-  ];
+  if (isLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
+        <div className="flex items-center gap-3 rounded-3xl bg-gray-800 border border-white/10 p-8 shadow-xl">
+          <Loader2 className="animate-spin text-orange-500" size={24} />
+          <span className="font-bold text-gray-300">Loading Partner Workspace...</span>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="hidden w-64 flex-col bg-[#07111f] p-6 text-white lg:flex">
-        <Link href="/" className="mb-10 flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500">
-            <Utensils size={18} />
+    <main className="min-h-screen bg-[#070e17] text-white flex flex-col md:flex-row">
+      {/* Sidebar Navigation - Flowchart Branches */}
+      <aside className="w-full md:w-72 border-r border-white/10 bg-[#0a1320] p-6 space-y-8 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/20">
+              <Utensils size={20} />
+            </div>
+            <div>
+              <span className="text-xl font-black tracking-tight">{restaurantName}</span>
+              <span className="block text-[10px] font-bold text-orange-400 uppercase">Partner Workspace</span>
+            </div>
           </div>
-          <span className="text-lg font-black">DineFlow</span>
-        </Link>
+        </div>
 
-        <nav className="flex-1 space-y-1 text-sm font-semibold">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 transition ${
-                item.active
-                  ? "bg-orange-500 text-white"
-                  : "text-gray-400 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <item.icon size={18} />
-              {item.label}
-            </Link>
-          ))}
+        {/* 6 Core Flowchart Menu Branches */}
+        <nav className="space-y-2">
+          {[
+            { id: "home", label: "Home", icon: LayoutDashboard },
+            { id: "floormap_menu", label: "Floor Map & Menu List", icon: Table2 },
+            { id: "guest_staff", label: "Guest & Staff List", icon: Users },
+            { id: "analytics", label: "Analytics", icon: BarChart3 },
+            { id: "settings", label: "Settings", icon: Settings },
+            { id: "help_feedback", label: "Get Help & Feedback", icon: HelpCircle },
+          ].map((branch) => {
+            const isActive = activeBranch === branch.id;
+            return (
+              <button
+                key={branch.id}
+                onClick={() => {
+                  setActiveBranch(branch.id as any);
+                  if (branch.id === "home") setActiveSubTab("recent_online");
+                  if (branch.id === "floormap_menu") setActiveSubTab("table_map");
+                  if (branch.id === "guest_staff") setActiveSubTab("guest_book");
+                  if (branch.id === "analytics") setActiveSubTab("attendance");
+                  if (branch.id === "settings") setActiveSubTab("user_mgmt");
+                  if (branch.id === "help_feedback") setActiveSubTab("get_help");
+                }}
+                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-sm font-black transition ${
+                  isActive
+                    ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
+                    : "text-gray-400 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <branch.icon size={18} />
+                  <span>{branch.label}</span>
+                </div>
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="mt-6 space-y-3">
-          <div className="rounded-2xl bg-white/5 p-4">
-            <p className="text-sm font-black text-white">{restaurantName || "..."}</p>
-            <p className="mt-0.5 text-xs text-gray-400">{text.ownerLabel}</p>
-          </div>
+        <div className="pt-6 border-t border-white/10 space-y-3">
+          <Link
+            href="/partner/profile"
+            className="flex w-full items-center gap-3 rounded-2xl bg-white/5 px-4 py-3 text-xs font-bold text-gray-300 hover:bg-white/10"
+          >
+            <UserCheck size={16} className="text-orange-400" /> Founder Profile
+          </Link>
+
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-gray-400 hover:bg-white/10 hover:text-white"
+            className="flex w-full items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-3 text-xs font-bold text-red-400 hover:bg-red-500/20"
           >
-            <LogOut size={16} />
-            {text.logout}
+            <LogOut size={16} /> Sign Out
           </button>
         </div>
       </aside>
 
-      {/* Main */}
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+      {/* Main Workspace Area */}
+      <section className="flex-1 p-6 md:p-10 space-y-8 overflow-y-auto">
+        {/* Top Workspace Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
           <div>
-            <h1 className="text-2xl font-black text-gray-950">
-              {text.welcome}{restaurantName ? `, ${restaurantName}` : ""}!
-            </h1>
-            <p className="text-sm text-gray-500">{text.subtitle}</p>
+            <div className="flex items-center gap-2 text-xs font-black uppercase text-orange-400 tracking-wider">
+              <Sparkles size={14} /> Restaurant Operations Hub
+            </div>
+            <h1 className="text-3xl font-black text-white capitalize">{activeBranch.replace("_", " & ")}</h1>
           </div>
+
           <div className="flex items-center gap-3">
             <LanguageSwitcher />
-            <Link
-              href="/partner/bookings"
-              className="relative rounded-2xl border border-gray-200 bg-white p-2.5 text-gray-600 hover:bg-orange-50"
+
+            <button
+              onClick={() => setShowOfflineModal(true)}
+              className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-xs font-black text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20 transition"
             >
-              <Bell size={20} />
-              {stats && stats.pendingBookings > 0 && (
-                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white">
-                  {stats.pendingBookings}
-                </span>
-              )}
-            </Link>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 text-sm font-black text-orange-600">
-              {restaurantName.charAt(0) || "P"}
+              <Plus size={16} /> Add Offline Booking
+            </button>
+          </div>
+        </div>
+
+        {/* BRANCH 1: HOME (Recent Online Bookings, Time Line, Offline Bookings) */}
+        {activeBranch === "home" && (
+          <div className="space-y-6">
+            <div className="flex gap-2 border-b border-white/10 pb-3">
+              {[
+                { id: "recent_online", label: "Recent Online Bookings" },
+                { id: "timeline", label: "Time Line" },
+                { id: "offline_list", label: "Offline Bookings" },
+              ].map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveSubTab(sub.id)}
+                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${
+                    activeSubTab === sub.id
+                      ? "bg-white/10 text-orange-400 border border-orange-500/30"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+
+            {activeSubTab === "recent_online" && (
+              <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-4">
+                <h3 className="text-xl font-black text-white">Recent Customer Online Reservations</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-300">
+                    <thead className="border-b border-white/10 text-xs uppercase text-gray-400">
+                      <tr>
+                        <th className="py-3 px-4">Customer</th>
+                        <th className="py-3 px-4">Table</th>
+                        <th className="py-3 px-4">Date & Time</th>
+                        <th className="py-3 px-4">Guests</th>
+                        <th className="py-3 px-4">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {bookings.filter((b) => b.type !== "offline").map((b) => (
+                        <tr key={b.id} className="hover:bg-white/5">
+                          <td className="py-4 px-4 font-black text-white">{b.customer_name}</td>
+                          <td className="py-4 px-4 font-bold text-orange-400">{b.table_name || "T1"}</td>
+                          <td className="py-4 px-4 text-xs">{b.booking_date} at {b.booking_time}</td>
+                          <td className="py-4 px-4">{b.guests_count} guests</td>
+                          <td className="py-4 px-4">
+                            <span className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/30 capitalize">
+                              {b.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeSubTab === "timeline" && (
+              <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-4">
+                <h3 className="text-xl font-black text-white">Today's Reservation Timeline</h3>
+                <div className="grid gap-3 sm:grid-cols-4">
+                  {["12:00 PM", "02:00 PM", "06:00 PM", "08:00 PM"].map((slot, i) => (
+                    <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+                      <span className="text-xs font-bold text-orange-400">{slot}</span>
+                      <p className="text-sm font-black text-white">2 Tables Reserved</p>
+                      <p className="text-xs text-gray-400">4 Guests Expected</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeSubTab === "offline_list" && (
+              <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black text-white">Manual & Phone Offline Bookings</h3>
+                  <button
+                    onClick={() => setShowOfflineModal(true)}
+                    className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-black text-white"
+                  >
+                    + New Walk-in
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-300">
+                    <thead className="border-b border-white/10 text-xs uppercase text-gray-400">
+                      <tr>
+                        <th className="py-3 px-4">Guest Name</th>
+                        <th className="py-3 px-4">Phone</th>
+                        <th className="py-3 px-4">Table</th>
+                        <th className="py-3 px-4">Date & Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {bookings.filter((b) => b.type === "offline").map((b) => (
+                        <tr key={b.id} className="hover:bg-white/5">
+                          <td className="py-4 px-4 font-black text-white">{b.customer_name}</td>
+                          <td className="py-4 px-4 text-xs font-mono">{b.customer_phone || "Walk-in"}</td>
+                          <td className="py-4 px-4 font-bold text-orange-400">{b.table_name || "T1"}</td>
+                          <td className="py-4 px-4 text-xs">{b.booking_date} at {b.booking_time}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BRANCH 2: FLOOR MAP & MENU LIST */}
+        {activeBranch === "floormap_menu" && (
+          <div className="space-y-6">
+            <div className="flex gap-2 border-b border-white/10 pb-3">
+              <Link
+                href="/partner/floor-plan"
+                className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-black text-white shadow-md shadow-orange-500/20"
+              >
+                Open 2D Drag & Drop Table Builder →
+              </Link>
+              <Link
+                href="/partner/menu"
+                className="rounded-xl bg-white/10 px-4 py-2 text-xs font-black text-white hover:bg-white/20"
+              >
+                Manage Menu Catalog →
+              </Link>
             </div>
           </div>
-        </header>
+        )}
 
-        <section className="flex-1 p-6 lg:p-8">
-          {isLoading ? (
-            <div className="flex items-center gap-3 text-gray-500">
-              <Loader2 className="animate-spin text-orange-500" />
-              {text.loading}
+        {/* BRANCH 3: GUEST & STAFF LIST */}
+        {activeBranch === "guest_staff" && (
+          <div className="space-y-6">
+            <div className="flex gap-2 border-b border-white/10 pb-3">
+              {[
+                { id: "guest_book", label: "Guest Book (CRM)" },
+                { id: "staff_book", label: "Staff Book" },
+              ].map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveSubTab(sub.id)}
+                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${
+                    activeSubTab === sub.id
+                      ? "bg-white/10 text-orange-400 border border-orange-500/30"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <>
-              {/* Stats */}
-              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
-                {[
-                  { label: text.totalBookings, value: stats?.totalBookings ?? 0, icon: CalendarDays, accent: false },
-                  { label: text.todayBookings, value: stats?.todayBookings ?? 0, icon: Bell, accent: true },
-                  { label: text.pending, value: stats?.pendingBookings ?? 0, icon: Users, accent: false },
-                  { label: text.tables, value: stats?.totalTables ?? 0, icon: Table2, accent: false },
-                  { label: text.menuItems, value: stats?.menuItems ?? 0, icon: ClipboardList, accent: false },
-                ].map((card) => (
-                  <div
-                    key={card.label}
-                    className={`rounded-3xl p-6 ${
-                      card.accent ? "bg-orange-500 text-white" : "border border-gray-200 bg-white shadow-sm"
-                    }`}
-                  >
-                    <card.icon size={22} className={card.accent ? "text-white/80" : "text-orange-500"} />
-                    <p className={`mt-4 text-3xl font-black ${card.accent ? "text-white" : "text-gray-950"}`}>
-                      {card.value}
-                    </p>
-                    <p className={`mt-1 text-sm font-bold ${card.accent ? "text-white/80" : "text-gray-600"}`}>
-                      {card.label}
-                    </p>
-                  </div>
-                ))}
-              </div>
 
-              {/* Bottom grid */}
-              <div className="mt-8 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-                {/* Recent bookings */}
-                <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                  <div className="mb-5 flex items-center justify-between">
-                    <h2 className="text-lg font-black text-gray-950">{text.recentBookings}</h2>
-                    <Link href="/partner/bookings" className="text-sm font-bold text-orange-600 hover:underline">
-                      {text.viewAll}
-                    </Link>
-                  </div>
-                  {recentBookings.length === 0 ? (
-                    <p className="text-sm text-gray-400">{text.noBookings}</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {recentBookings.map((b) => (
-                        <div key={b.id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
-                          <div>
-                            <p className="text-sm font-black text-gray-900">{b.customer_name || "Guest"}</p>
-                            <p className="text-xs text-gray-500">
-                              {b.booking_date} · {b.booking_time} · {b.guests_count} {text.guests}
-                            </p>
-                          </div>
-                          <span className={`rounded-full px-3 py-1 text-xs font-black ${statusStyle(b.status)}`}>
-                            {b.status}
+            {activeSubTab === "guest_book" && (
+              <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-4">
+                <h3 className="text-xl font-black text-white">Guest Book Directory</h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {guestBook.map((g, i) => (
+                    <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-black text-white">{g.name}</h4>
+                        {g.vipStatus && (
+                          <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-black text-amber-300 border border-amber-500/30">
+                            ★ VIP Guest
                           </span>
-                        </div>
-                      ))}
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 font-mono">{g.phone}</p>
+                      <p className="text-xs font-bold text-orange-400">Total Visits: {g.totalVisits} times</p>
                     </div>
-                  )}
-                </div>
-
-                {/* Quick actions */}
-                <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                  <h2 className="mb-5 text-lg font-black text-gray-950">{text.quickActions}</h2>
-                  <div className="space-y-3">
-                    {[
-                      { label: text.manageBookings, href: "/partner/bookings", icon: CalendarDays },
-                      { label: text.addTable, href: "/partner/floor-plan", icon: Table2 },
-                      { label: text.addDish, href: "/partner/menu", icon: ClipboardList },
-                      { label: text.viewAnalytics, href: "/partner/analytics", icon: ChartLine },
-                    ].map((action) => (
-                      <Link
-                        key={action.href}
-                        href={action.href}
-                        className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm font-bold text-orange-700 transition hover:bg-orange-100"
-                      >
-                        <action.icon size={16} />
-                        {action.label}
-                      </Link>
-                    ))}
-                  </div>
+                  ))}
                 </div>
               </div>
-            </>
-          )}
-        </section>
-      </div>
+            )}
+
+            {activeSubTab === "staff_book" && (
+              <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-4">
+                <h3 className="text-xl font-black text-white">Restaurant Staff Book</h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {staffList.map((s, i) => (
+                    <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+                      <h4 className="font-black text-white">{s.name}</h4>
+                      <p className="text-xs font-bold text-orange-400">{s.role}</p>
+                      <p className="text-xs font-mono text-gray-400">{s.phone}</p>
+                      <span className="inline-block rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                        {s.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BRANCH 4: ANALYTICS (Attendance, Quantity of Guests, Guests Payment) */}
+        {activeBranch === "analytics" && (
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-gray-900/80 p-6">
+                <p className="text-xs font-bold text-gray-400 uppercase">Guest Attendance Rate</p>
+                <p className="text-4xl font-black text-emerald-400 mt-2">{stats.attendanceRate}%</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-gray-900/80 p-6">
+                <p className="text-xs font-bold text-gray-400 uppercase">Quantity of Guests</p>
+                <p className="text-4xl font-black text-orange-400 mt-2">{stats.totalGuests}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-gray-900/80 p-6">
+                <p className="text-xs font-bold text-gray-400 uppercase">Guests Payment & Revenue</p>
+                <p className="text-4xl font-black text-sky-400 mt-2">${stats.totalRevenue}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BRANCH 5: SETTINGS (User Management, Chit Printing, Notification) */}
+        {activeBranch === "settings" && (
+          <div className="space-y-6">
+            <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-6">
+              <h3 className="text-xl font-black text-white">Restaurant Operational Settings</h3>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10">
+                  <div>
+                    <h4 className="font-black text-white flex items-center gap-2">
+                      <Printer size={16} className="text-orange-400" /> Chit Printing Preferences
+                    </h4>
+                    <p className="text-xs text-gray-400">Auto-print kitchen chits upon new pre-order booking.</p>
+                  </div>
+                  <input type="checkbox" defaultChecked className="h-5 w-5 accent-orange-500" />
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10">
+                  <div>
+                    <h4 className="font-black text-white flex items-center gap-2">
+                      <Volume2 size={16} className="text-orange-400" /> Instant Notification Alerts
+                    </h4>
+                    <p className="text-xs text-gray-400">Play sound alert on new online reservation.</p>
+                  </div>
+                  <input type="checkbox" defaultChecked className="h-5 w-5 accent-orange-500" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BRANCH 6: GET HELP & FEEDBACK */}
+        {activeBranch === "help_feedback" && (
+          <div className="space-y-6">
+            <div className="rounded-[2rem] border border-white/10 bg-gray-900/80 p-6 shadow-xl space-y-6">
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <MessageSquarePlus size={20} className="text-orange-400" /> Platform Help & Feedback
+              </h3>
+
+              <form onSubmit={handleSendFeedback} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-2">
+                    Submit Feedback to DineFlow Core Team
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder="Describe any suggestions, issues, or feature requests..."
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-bold text-white outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                {feedbackSuccess && (
+                  <div className="rounded-2xl bg-emerald-500/20 border border-emerald-500/30 p-3 text-xs font-bold text-emerald-400">
+                    Thank you! Your feedback has been sent directly to the DineFlow team.
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="rounded-2xl bg-orange-500 px-6 py-3 text-xs font-black text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                >
+                  Submit Feedback
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Offline Booking Creator Modal */}
+      {showOfflineModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-gray-900 p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-white">Add Walk-in / Offline Booking</h3>
+              <button
+                onClick={() => setShowOfflineModal(false)}
+                className="rounded-full bg-white/10 p-2 text-gray-400 hover:bg-white/20"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateOfflineBooking} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Guest Name</label>
+                <input
+                  type="text"
+                  required
+                  value={offlineName}
+                  onChange={(e) => setOfflineName(e.target.value)}
+                  placeholder="John Smith"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-white outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={offlinePhone}
+                  onChange={(e) => setOfflinePhone(e.target.value)}
+                  placeholder="+998 90 123 45 67"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-white outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <div className="grid gap-3 grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={offlineTime}
+                    onChange={(e) => setOfflineTime(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-white outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Guests</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={offlineGuests}
+                    onChange={(e) => setOfflineGuests(Number(e.target.value))}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-white outline-none focus:border-orange-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full rounded-2xl bg-orange-500 py-3 text-sm font-black text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+              >
+                Create Offline Booking
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

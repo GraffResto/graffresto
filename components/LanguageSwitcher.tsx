@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, Globe } from "lucide-react";
 import { Language } from "@/lib/translations";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -30,6 +30,11 @@ const languageOptions: {
 export default function LanguageSwitcher() {
   const { language, setLanguage } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const activeLanguage =
     languageOptions.find((option) => option.value === language) ||
@@ -40,15 +45,18 @@ export default function LanguageSwitcher() {
     setIsOpen(false);
   }
 
+  // Prevent hydration mismatch by displaying static label during SSR
+  const displayLabel = mounted ? activeLanguage.label : "EN";
+
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
-        className="flex items-center gap-2 rounded-xl border border-orange-100 bg-white px-3 py-2 text-sm font-black text-gray-800 shadow-sm hover:bg-orange-50"
+        className="flex items-center gap-2 rounded-xl border border-orange-100 bg-white px-3 py-2 text-sm font-black text-gray-800 shadow-sm hover:bg-orange-50 transition"
       >
         <Globe size={16} className="text-orange-500" />
-        {activeLanguage.label}
+        <span>{displayLabel}</span>
         <ChevronDown
           size={15}
           className={`text-gray-500 transition ${isOpen ? "rotate-180" : ""}`}
@@ -69,7 +77,7 @@ export default function LanguageSwitcher() {
               }`}
             >
               <span>{option.fullLabel}</span>
-              <span className="text-xs">{option.label}</span>
+              <span className="text-xs font-mono">{option.label}</span>
             </button>
           ))}
         </div>
