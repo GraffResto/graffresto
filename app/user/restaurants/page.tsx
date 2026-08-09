@@ -1,35 +1,63 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowLeft, Utensils } from "lucide-react";
+import { ArrowLeft, Loader2, Utensils } from "lucide-react";
+import { useEffect, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import RestaurantCard from "@/components/RestaurantCard";
-import { supabase } from "@/lib/supabaseClient";
+import { db, collection, query, where, getDocs } from "@/lib/firebase";
 
-export const dynamic = "force-dynamic";
+type RestaurantDisplay = {
+  id: string;
+  name: string;
+  type: string;
+  location: string;
+  rating: number;
+  price: string;
+  status: string;
+  image: string;
+};
 
-export default async function UserRestaurantsPage() {
-  const { data: restaurants, error } = await supabase
-    .from("restaurants")
-    .select("id, name, cuisine_type, city, image_url, is_open")
-    .eq("approval_status", "approved")
-    .order("created_at", { ascending: false });
+export default function UserRestaurantsPage() {
+  const [restaurantList, setRestaurantList] = useState<RestaurantDisplay[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (error) {
-    console.error("User restaurants error:", error.message);
-  }
+  useEffect(() => {
+    async function load() {
+      setIsLoading(true);
+      try {
+        const q = query(
+          collection(db, "restaurants"),
+          where("approval_status", "==", "approved")
+        );
+        const snap = await getDocs(q);
 
-  const restaurantList =
-    restaurants?.map((restaurant) => ({
-      id: restaurant.id,
-      name: restaurant.name,
-      type: restaurant.cuisine_type || "Restaurant",
-      location: restaurant.city || "Tashkent",
-      rating: 4.8,
-      price: "$$",
-      status: restaurant.is_open ? "Open" : "Closed",
-      image:
-        restaurant.image_url ||
-        "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop",
-    })) || [];
+        const list: RestaurantDisplay[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            name: d.name || "Restaurant",
+            type: d.cuisine_type || "Restaurant",
+            location: d.city || "Tashkent",
+            rating: d.rating || 4.8,
+            price: d.price || "$$",
+            status: d.is_open ? "Open" : "Closed",
+            image:
+              d.image_url ||
+              "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop",
+          };
+        });
+
+        setRestaurantList(list);
+      } catch (error) {
+        console.error("User restaurants error:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   return (
     <main className="min-h-screen bg-[#fffaf5]">
@@ -45,7 +73,10 @@ export default async function UserRestaurantsPage() {
             </span>
           </Link>
 
-          <LogoutButton />
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+            <LogoutButton />
+          </div>
         </div>
       </header>
 
@@ -72,7 +103,11 @@ export default async function UserRestaurantsPage() {
           </p>
         </div>
 
-        {restaurantList.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center gap-3 text-gray-500">
+            <Loader2 className="animate-spin text-orange-500" /> Loading restaurants...
+          </div>
+        ) : restaurantList.length === 0 ? (
           <div className="rounded-3xl border border-orange-100 bg-white p-8 text-center shadow-sm">
             <h2 className="text-xl font-black text-gray-950">
               No approved restaurants yet

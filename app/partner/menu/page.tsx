@@ -2,671 +2,662 @@
 
 import Link from "next/link";
 import {
-  ArrowLeft,
-  ClipboardList,
-  ImageIcon,
+  Bell,
+  Calendar,
+  Camera,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Edit2,
+  Image as ImageIcon,
   Loader2,
+  LogOut,
   Plus,
-  Save,
+  Search,
+  Table,
   Trash2,
   Utensils,
+  UtensilsCrossed,
+  X,
+  BarChart3,
+  ChefHat,
+  Boxes,
+  DollarSign,
+  Gift,
+  Settings,
+  Store,
+  LayoutDashboard,
+  Users,
+  User,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import LogoutButton from "@/components/LogoutButton";
+import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  doc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  onAuthStateChanged,
+  signOut,
+} from "@/lib/firebase";
 
-type Restaurant = {
+type DishItem = {
   id: string;
   name: string;
-  city: string | null;
-  cuisine_type: string | null;
-};
-
-type MenuItem = {
-  id: string;
-  restaurant_id: string;
-  name: string;
-  description: string | null;
-  category: string | null;
+  category: string;
   price: number;
-  image_url: string | null;
+  description: string;
+  image_url: string;
   is_available: boolean;
 };
 
-const menuText = {
-  en: {
-    back: "Back to Partner Panel",
-    title: "Menu Editor",
-    subtitle:
-      "Create and manage your restaurant menu. Customers will see available dishes during booking.",
-    noRestaurant: "No restaurant found",
-    noRestaurantText:
-      "Your partner account does not have a restaurant yet, or it has not been created.",
-    addItem: "Add Menu Item",
-    saveChanges: "Save Changes",
-    saving: "Saving...",
-    saved: "Menu saved successfully.",
-    selectItem: "Select a menu item to edit",
-    selectedItem: "Selected Item",
-    itemName: "Item Name",
-    itemNamePlaceholder: "Margherita Pizza",
-    category: "Category",
-    categoryPlaceholder: "Pizza, Salad, Drink...",
-    price: "Price",
-    description: "Description",
-    descriptionPlaceholder: "Short description of this meal",
-    imageUrl: "Image URL",
-    imageUrlPlaceholder: "https://...",
-    available: "Available",
-    unavailable: "Unavailable",
-    deleteItem: "Delete Item",
-    emptyTitle: "No menu items yet",
-    emptyText: "Add your first dish so customers can pre-order meals.",
-    preview: "Preview",
-    status: "Status",
-    item: "Item",
-  },
-  uz: {
-    back: "Partner panelga qaytish",
-    title: "Menyu tahrirlash",
-    subtitle:
-      "Restoran menyusini yarating va boshqaring. Mijozlar bron qilish paytida mavjud taomlarni ko‘radi.",
-    noRestaurant: "Restoran topilmadi",
-    noRestaurantText:
-      "Partner akkauntingizda hali restoran yo‘q yoki restoran yaratilmagan.",
-    addItem: "Menu item qo‘shish",
-    saveChanges: "O‘zgarishlarni saqlash",
-    saving: "Saqlanmoqda...",
-    saved: "Menyu muvaffaqiyatli saqlandi.",
-    selectItem: "Tahrirlash uchun menu item tanlang",
-    selectedItem: "Tanlangan item",
-    itemName: "Taom nomi",
-    itemNamePlaceholder: "Margherita Pizza",
-    category: "Kategoriya",
-    categoryPlaceholder: "Pizza, Salat, Ichimlik...",
-    price: "Narx",
-    description: "Tavsif",
-    descriptionPlaceholder: "Taom haqida qisqa ma’lumot",
-    imageUrl: "Rasm URL",
-    imageUrlPlaceholder: "https://...",
-    available: "Mavjud",
-    unavailable: "Mavjud emas",
-    deleteItem: "Itemni o‘chirish",
-    emptyTitle: "Hali menu item yo‘q",
-    emptyText:
-      "Mijozlar ovqatni oldindan buyurtma qilishi uchun birinchi taomni qo‘shing.",
-    preview: "Ko‘rinish",
-    status: "Status",
-    item: "Item",
-  },
-  ru: {
-    back: "Назад в партнёрский кабинет",
-    title: "Редактор меню",
-    subtitle:
-      "Создавайте и управляйте меню ресторана. Клиенты увидят доступные блюда при бронировании.",
-    noRestaurant: "Ресторан не найден",
-    noRestaurantText:
-      "У вашего партнёрского аккаунта пока нет ресторана или он не создан.",
-    addItem: "Добавить блюдо",
-    saveChanges: "Сохранить изменения",
-    saving: "Сохранение...",
-    saved: "Меню успешно сохранено.",
-    selectItem: "Выберите блюдо для редактирования",
-    selectedItem: "Выбранное блюдо",
-    itemName: "Название блюда",
-    itemNamePlaceholder: "Маргарита Пицца",
-    category: "Категория",
-    categoryPlaceholder: "Пицца, Салат, Напиток...",
-    price: "Цена",
-    description: "Описание",
-    descriptionPlaceholder: "Краткое описание блюда",
-    imageUrl: "URL изображения",
-    imageUrlPlaceholder: "https://...",
-    available: "Доступно",
-    unavailable: "Недоступно",
-    deleteItem: "Удалить блюдо",
-    emptyTitle: "Меню пока пустое",
-    emptyText:
-      "Добавьте первое блюдо, чтобы клиенты могли делать предзаказ.",
-    preview: "Предпросмотр",
-    status: "Статус",
-    item: "Блюдо",
-  },
-};
-
-export default function PartnerMenuPage() {
+export default function MenuManagementPage() {
+  const router = useRouter();
   const { language } = useLanguage();
-  const text = menuText[language];
 
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [selectedItemId, setSelectedItemId] = useState("");
-  const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+
+  // Category State
+  const [activeCategory, setActiveCategory] = useState("Lunch");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const [dishes, setDishes] = useState<DishItem[]>([]);
+
+  // Drawer Form State
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [dishName, setDishName] = useState("");
+  const [dishCategory, setDishCategory] = useState("Lunch");
+  const [dishPrice, setDishPrice] = useState("12.50");
+  const [dishDescription, setDishDescription] = useState("");
+  const [dishImageUrl, setDishImageUrl] = useState("https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=800");
+  const [dishAvailable, setDishAvailable] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  const selectedItem =
-    menuItems.find((item) => item.id === selectedItemId) || null;
-
   useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-
-      const { data: userData } = await supabase.auth.getUser();
-
-      if (!userData.user) {
-        setRestaurant(null);
-        setMenuItems([]);
-        setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
         return;
       }
 
-      const { data: restaurantData, error: restaurantError } = await supabase
-        .from("restaurants")
-        .select("id, name, city, cuisine_type")
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      if (restaurantError || !restaurantData) {
-        setRestaurant(null);
-        setMenuItems([]);
+        if (!rSnap.empty) {
+          const rDoc = rSnap.docs[0];
+          setRestaurantId(rDoc.id);
+          setRestaurantName(rDoc.data().name || "Afsona Restaurant");
+        }
+
+        // Real-time Firestore Listeners
+        const unsub = onSnapshot(collection(db, "dishes"), (snap) => {
+          const list: DishItem[] = snap.docs.map((d) => ({
+            id: d.id,
+            name: d.data().name || "Dish",
+            category: d.data().category || "Lunch",
+            price: Number(d.data().price) || 12.5,
+            description: d.data().description || "",
+            image_url: d.data().image_url || "https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=800",
+            is_available: d.data().is_available !== false,
+          }));
+
+          if (list.length > 0) {
+            setDishes(list);
+          } else {
+            // Mock dataset matching Mockup 3
+            setDishes([
+              { id: "d1", name: "Pasta Bologna", category: "Lunch", price: 12.5, description: "Classic pasta with rich bolognese sauce and parmesan.", image_url: "https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=800", is_available: true },
+              { id: "d2", name: "Spicy Fried Chicken", category: "Lunch", price: 10.9, description: "Crispy fried chicken with house spicy sauce.", image_url: "https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?q=80&w=800", is_available: true },
+              { id: "d3", name: "Grilled Steak", category: "Lunch", price: 18.0, description: "Premium grilled steak with seasonal vegetables.", image_url: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=800", is_available: true },
+              { id: "d4", name: "Fish And Chips", category: "Lunch", price: 14.5, description: "Crispy fish fillet with fries and tartar sauce.", image_url: "https://images.unsplash.com/photo-1579208030886-b937da0925dc?q=80&w=800", is_available: false },
+              { id: "d5", name: "Beef Bourguignon", category: "Lunch", price: 16.8, description: "Slow-cooked beef in red wine with vegetables.", image_url: "https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?q=80&w=800", is_available: true },
+              { id: "d6", name: "Spaghetti Carbonara", category: "Lunch", price: 11.2, description: "Creamy spaghetti with egg, cheese and pancetta.", image_url: "https://images.unsplash.com/photo-1612874742237-6526221588e3?q=80&w=800", is_available: true },
+              { id: "d7", name: "Ratatouille", category: "Lunch", price: 9.5, description: "French-style stewed vegetables with herbs.", image_url: "https://images.unsplash.com/photo-1572449043416-55f4685c9bb7?q=80&w=800", is_available: true },
+              { id: "d8", name: "Kimchi Jjigae", category: "Lunch", price: 10.9, description: "Korean kimchi stew with tofu and pork.", image_url: "https://images.unsplash.com/photo-1583032015879-e502275d0f62?q=80&w=800", is_available: false },
+              { id: "d9", name: "Tofu Scramble", category: "Lunch", price: 8.9, description: "Tofu scramble with veggies and sourdough.", image_url: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=800", is_available: true },
+            ]);
+          }
+          setIsLoading(false);
+        });
+
+        return () => unsub();
+      } catch (err) {
+        console.error("Menu load error:", err);
         setIsLoading(false);
-        return;
       }
+    });
 
-      setRestaurant(restaurantData as Restaurant);
+    return () => unsubscribe();
+  }, [router]);
 
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("menu_items")
-        .select(
-          "id, restaurant_id, name, description, category, price, image_url, is_available"
-        )
-        .eq("restaurant_id", restaurantData.id)
-        .order("created_at", { ascending: false });
-
-      if (itemsError) {
-        console.error("Menu error:", itemsError.message);
-        setMenuItems([]);
-        setIsLoading(false);
-        return;
-      }
-
-      setMenuItems((itemsData || []) as MenuItem[]);
-      setIsLoading(false);
+  async function handleToggleAvailable(id: string, currentStatus: boolean) {
+    try {
+      await updateDoc(doc(db, "dishes", id), { is_available: !currentStatus });
+    } catch (err) {
+      setDishes((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, is_available: !currentStatus } : d))
+      );
     }
-
-    loadData();
-  }, []);
-
-  function updateSelectedItem<K extends keyof MenuItem>(
-    key: K,
-    value: MenuItem[K]
-  ) {
-    if (!selectedItemId) {
-      return;
-    }
-
-    setMenuItems((currentItems) =>
-      currentItems.map((item) =>
-        item.id === selectedItemId
-          ? {
-              ...item,
-              [key]: value,
-            }
-          : item
-      )
-    );
   }
 
-  async function handleAddItem() {
-    if (!restaurant) {
-      return;
+  async function handleDeleteDish(id: string) {
+    try {
+      await deleteDoc(doc(db, "dishes", id));
+    } catch (err) {
+      setDishes((prev) => prev.filter((d) => d.id !== id));
     }
-
-    const { data, error } = await supabase
-      .from("menu_items")
-      .insert({
-        restaurant_id: restaurant.id,
-        name: "New Dish",
-        description: "Describe this dish.",
-        category: "Main",
-        price: 25000,
-        image_url:
-          "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1200&auto=format&fit=crop",
-        is_available: true,
-      })
-      .select(
-        "id, restaurant_id, name, description, category, price, image_url, is_available"
-      )
-      .single();
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    const newItem = data as MenuItem;
-
-    setMenuItems((currentItems) => [newItem, ...currentItems]);
-    setSelectedItemId(newItem.id);
-    setMessage("");
   }
 
-  async function handleSaveChanges() {
+  function handleOpenEdit(dish: DishItem) {
+    setEditingId(dish.id);
+    setDishName(dish.name);
+    setDishCategory(dish.category);
+    setDishPrice(String(dish.price));
+    setDishDescription(dish.description);
+    setDishImageUrl(dish.image_url);
+    setDishAvailable(dish.is_available);
+    setShowDrawer(true);
+  }
+
+  function handleOpenCreate() {
+    setEditingId(null);
+    setDishName("");
+    setDishCategory(activeCategory);
+    setDishPrice("12.50");
+    setDishDescription("");
+    setDishImageUrl("https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=800");
+    setDishAvailable(true);
+    setShowDrawer(true);
+  }
+
+  async function handleSaveDish(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dishName) return;
+
     setIsSaving(true);
-    setMessage("");
-
-    for (const item of menuItems) {
-      const { error } = await supabase
-        .from("menu_items")
-        .update({
-          name: item.name,
-          description: item.description,
-          category: item.category,
-          price: Number(item.price),
-          image_url: item.image_url,
-          is_available: item.is_available,
-        })
-        .eq("id", item.id);
-
-      if (error) {
-        setMessage(error.message);
-        setIsSaving(false);
-        return;
+    try {
+      if (editingId) {
+        await updateDoc(doc(db, "dishes", editingId), {
+          name: dishName,
+          category: dishCategory,
+          price: Number(dishPrice),
+          description: dishDescription,
+          image_url: dishImageUrl,
+          is_available: dishAvailable,
+        });
+      } else {
+        await addDoc(collection(db, "dishes"), {
+          restaurant_id: restaurantId,
+          name: dishName,
+          category: dishCategory,
+          price: Number(dishPrice),
+          description: dishDescription,
+          image_url: dishImageUrl,
+          is_available: dishAvailable,
+          created_at: new Date().toISOString(),
+        });
       }
-    }
 
-    setMessage(text.saved);
-    setIsSaving(false);
+      setShowDrawer(false);
+    } catch (err) {
+      console.error("Error saving dish:", err);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  async function handleDeleteItem() {
-    if (!selectedItem) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("menu_items")
-      .delete()
-      .eq("id", selectedItem.id);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setMenuItems((currentItems) =>
-      currentItems.filter((item) => item.id !== selectedItem.id)
-    );
-
-    setSelectedItemId("");
-    setMessage("");
+  async function handleLogout() {
+    await signOut(auth);
+    router.push("/login");
   }
+
+  const categoriesList = [
+    { name: "Breakfast", count: 6 },
+    { name: "Lunch", count: 8 },
+    { name: "Dinner", count: 7 },
+    { name: "Soup", count: 4 },
+    { name: "Desserts", count: 5 },
+    { name: "Side Dish", count: 6 },
+    { name: "Appetizer", count: 5 },
+    { name: "Beverages", count: 7 },
+  ];
+
+  const filteredDishes = dishes.filter((d) => {
+    const matchesCat = activeCategory ? d.category === activeCategory : true;
+    const matchesSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCat && matchesSearch;
+  });
 
   if (isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#fffaf5]">
-        <div className="flex items-center gap-3 rounded-3xl bg-white px-6 py-5 shadow-sm">
-          <Loader2 className="animate-spin text-orange-500" />
-          <span className="font-bold text-gray-700">Loading...</span>
+      <main className="flex min-h-screen items-center justify-center bg-[#070e17] text-white">
+        <div className="flex items-center gap-3 rounded-3xl bg-[#0f172a] border border-white/10 p-8 shadow-2xl">
+          <Loader2 className="animate-spin text-orange-500" size={24} />
+          <span className="font-bold text-gray-300">Loading Menu...</span>
         </div>
-      </main>
-    );
-  }
-
-  if (!restaurant) {
-    return (
-      <main className="min-h-screen bg-[#fffaf5]">
-        <header className="border-b border-orange-100 bg-white">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-            <Link href="/partner" className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-white">
-                <Utensils size={18} />
-              </div>
-              <span className="text-xl font-black text-gray-950">
-                DineFlow Partner
-              </span>
-            </Link>
-
-            <div className="flex items-center gap-3">
-              <LanguageSwitcher />
-              <LogoutButton />
-            </div>
-          </div>
-        </header>
-
-        <section className="mx-auto max-w-3xl px-6 py-20">
-          <div className="rounded-[2rem] border border-orange-100 bg-white p-8 text-center shadow-sm">
-            <h1 className="text-3xl font-black text-gray-950">
-              {text.noRestaurant}
-            </h1>
-
-            <p className="mt-3 text-gray-600">{text.noRestaurantText}</p>
-
-            <Link
-              href="/partner"
-              className="mt-6 inline-flex rounded-2xl bg-orange-500 px-6 py-3 font-black text-white"
-            >
-              {text.back}
-            </Link>
-          </div>
-        </section>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#fffaf5]">
-      <header className="border-b border-orange-100 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/partner" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-white">
-              <Utensils size={18} />
+    <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
+      {/* Sidebar matching Mockup 3 */}
+      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 px-2 py-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
+              <Utensils size={20} />
             </div>
-            <span className="text-xl font-black text-gray-950">
-              DineFlow Partner
-            </span>
+            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
+          </div>
+
+          <nav className="space-y-1 text-sm font-semibold">
+            <Link
+              href="/partner"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <LayoutDashboard size={18} />
+              <span>Dashboard</span>
+            </Link>
+
+            <Link
+              href="/partner/bookings"
+              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <div className="flex items-center gap-3">
+                <Calendar size={18} />
+                <span>Bookings</span>
+              </div>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
+                3
+              </span>
+            </Link>
+
+            <Link
+              href="/partner/floor-plan"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Table size={18} />
+              <span>Floor Map</span>
+            </Link>
+
+            <Link
+              href="/partner/menu"
+              className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-3 text-white font-bold shadow-md shadow-orange-500/20"
+            >
+              <UtensilsCrossed size={18} />
+              <span>Menu</span>
+            </Link>
+
+            <Link
+              href="/partner/analytics"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <BarChart3 size={18} />
+              <span>Analytics</span>
+            </Link>
+
+            <Link
+              href="/partner/crm"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Users size={18} />
+              <span>CRM</span>
+            </Link>
+
+            <Link
+              href="/partner/promotions"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Gift size={18} />
+              <span>Promotions</span>
+            </Link>
+          </nav>
+
+          <div className="pt-4 border-t border-slate-800 space-y-1">
+            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              ERP Modules
+            </p>
+            <Link
+              href="/partner/kitchen"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <ChefHat size={16} /> Kitchen
+            </Link>
+            <Link
+              href="/partner/inventory"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Boxes size={16} /> Inventory
+            </Link>
+            <Link
+              href="/partner/finance"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <DollarSign size={16} /> Finance
+            </Link>
+            <Link
+              href="/partner/staff"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <User size={16} /> Staff
+            </Link>
+          </div>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t border-slate-800">
+          <Link
+            href="/partner/settings"
+            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+          >
+            <Settings size={16} /> Settings
           </Link>
 
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-7xl px-6 py-8">
-        <Link
-          href="/partner"
-          className="mb-6 inline-flex items-center gap-2 font-bold text-gray-600 hover:text-orange-600"
-        >
-          <ArrowLeft size={18} />
-          {text.back}
-        </Link>
-
-        <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="font-bold text-orange-600">
-              {restaurant.name} • {restaurant.city || "City"}
-            </p>
-
-            <h1 className="mt-2 text-4xl font-black text-gray-950">
-              {text.title}
-            </h1>
-
-            <p className="mt-3 max-w-2xl text-gray-600">{text.subtitle}</p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleAddItem}
-              className="flex items-center gap-2 rounded-2xl border border-orange-200 bg-white px-5 py-3 font-black text-orange-600 hover:bg-orange-50"
-            >
-              <Plus size={18} />
-              {text.addItem}
-            </button>
-
-            <button
-              type="button"
-              disabled={isSaving}
-              onClick={handleSaveChanges}
-              className="flex items-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 font-black text-white hover:bg-orange-600 disabled:opacity-70"
-            >
-              {isSaving ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <Save size={18} />
-              )}
-              {isSaving ? text.saving : text.saveChanges}
-            </button>
-          </div>
-        </div>
-
-        {message && (
-          <div
-            className={`mb-6 rounded-2xl p-4 text-sm font-bold ${
-              message === text.saved
-                ? "bg-green-50 text-green-700"
-                : "bg-red-50 text-red-700"
-            }`}
+          <Link
+            href="/partner/profile"
+            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
           >
-            {message}
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
+              <Store size={18} />
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
+              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
+            </div>
+          </Link>
+
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+          >
+            <LogOut size={16} /> Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Workspace Area matching Mockup 3 */}
+      <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Top Header */}
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur-md px-8 py-5">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900">Menu Management</h1>
+            <p className="text-xs font-medium text-slate-500">48 dishes across 8 categories</p>
           </div>
-        )}
 
-        <div className="grid gap-8 lg:grid-cols-[1.1fr_0.8fr]">
-          <section className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-sm">
-            {menuItems.length === 0 ? (
-              <div className="rounded-3xl bg-orange-50 p-8 text-center">
-                <ClipboardList
-                  className="mx-auto text-orange-500"
-                  size={46}
-                />
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <Search className="absolute left-3.5 top-3 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search dishes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="rounded-2xl border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-xs font-bold text-slate-900 outline-none focus:border-orange-500 w-64"
+              />
+            </div>
 
-                <h2 className="mt-4 text-2xl font-black text-gray-950">
-                  {text.emptyTitle}
-                </h2>
+            <LanguageSwitcher />
 
-                <p className="mx-auto mt-2 max-w-md text-gray-600">
-                  {text.emptyText}
-                </p>
+            <div className="relative">
+              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                <Bell size={18} />
+              </button>
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
+                3
+              </span>
+            </div>
 
-                <button
-                  type="button"
-                  onClick={handleAddItem}
-                  className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 font-black text-white hover:bg-orange-600"
+            <Link
+              href="/partner/profile"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
+            >
+              A
+            </Link>
+          </div>
+        </header>
+
+        {/* Content Container */}
+        <div className="p-8 space-y-6">
+          {/* Category Pills matching Mockup 3 */}
+          <div className="flex items-center gap-3 overflow-x-auto pb-1">
+            {categoriesList.map((cat) => (
+              <button
+                key={cat.name}
+                onClick={() => setActiveCategory(cat.name)}
+                className={`rounded-2xl px-5 py-2.5 text-xs font-black transition flex-shrink-0 flex items-center gap-2 ${
+                  activeCategory === cat.name
+                    ? "bg-orange-500 text-white shadow-md shadow-orange-500/20"
+                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span>{cat.name}</span>
+                <span
+                  className={`text-[10px] font-bold ${
+                    activeCategory === cat.name ? "text-orange-100" : "text-slate-400"
+                  }`}
                 >
-                  <Plus size={18} />
-                  {text.addItem}
-                </button>
-              </div>
-            ) : (
-              <div className="grid gap-5 md:grid-cols-2">
-                {menuItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setSelectedItemId(item.id)}
-                    className={`overflow-hidden rounded-3xl border bg-white text-left shadow-sm transition hover:-translate-y-1 hover:shadow-lg ${
-                      selectedItemId === item.id
-                        ? "border-orange-500 ring-4 ring-orange-100"
-                        : "border-gray-100"
-                    }`}
-                  >
-                    <div
-                      className="h-44 bg-cover bg-center"
-                      style={{
-                        backgroundImage: `url(${
-                          item.image_url ||
-                          "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1200&auto=format&fit=crop"
-                        })`,
-                      }}
-                    />
+                  ({cat.count})
+                </span>
+              </button>
+            ))}
+          </div>
 
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-black text-gray-950">
-                            {item.name || text.item}
-                          </h3>
+          <h2 className="text-xl font-black text-slate-900">{activeCategory} Menu</h2>
 
-                          <p className="mt-1 text-sm text-gray-500">
-                            {item.category || text.category}
-                          </p>
-                        </div>
+          {/* Dish Cards Grid matching Mockup 3 */}
+          <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            {filteredDishes.map((dish) => (
+              <div
+                key={dish.id}
+                className="group rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition flex flex-col justify-between"
+              >
+                <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
+                  <img
+                    src={dish.image_url}
+                    alt={dish.name}
+                    className="h-full w-full object-cover group-hover:scale-105 transition duration-300"
+                  />
 
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-black ${
-                            item.is_available
-                              ? "bg-green-50 text-green-700"
-                              : "bg-gray-100 text-gray-500"
-                          }`}
-                        >
-                          {item.is_available
-                            ? text.available
-                            : text.unavailable}
-                        </span>
-                      </div>
-
-                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-gray-600">
-                        {item.description || text.description}
-                      </p>
-
-                      <p className="mt-4 text-xl font-black text-orange-600">
-                        {Number(item.price).toLocaleString()} UZS
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <aside className="h-fit rounded-[2rem] border border-orange-100 bg-white p-6 shadow-sm lg:sticky lg:top-8">
-            {selectedItem ? (
-              <div>
-                <h2 className="text-2xl font-black text-gray-950">
-                  {text.selectedItem}
-                </h2>
-
-                <div className="mt-6 space-y-4">
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.itemName}
-                    </label>
-                    <input
-                      value={selectedItem.name}
-                      onChange={(event) =>
-                        updateSelectedItem("name", event.target.value)
-                      }
-                      placeholder={text.itemNamePlaceholder}
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.category}
-                    </label>
-                    <input
-                      value={selectedItem.category || ""}
-                      onChange={(event) =>
-                        updateSelectedItem("category", event.target.value)
-                      }
-                      placeholder={text.categoryPlaceholder}
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.price}
-                    </label>
-                    <input
-                      type="number"
-                      value={selectedItem.price}
-                      onChange={(event) =>
-                        updateSelectedItem(
-                          "price",
-                          Number(event.target.value)
-                        )
-                      }
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.description}
-                    </label>
-                    <textarea
-                      value={selectedItem.description || ""}
-                      onChange={(event) =>
-                        updateSelectedItem("description", event.target.value)
-                      }
-                      placeholder={text.descriptionPlaceholder}
-                      rows={4}
-                      className="w-full resize-none rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.imageUrl}
-                    </label>
-                    <input
-                      value={selectedItem.image_url || ""}
-                      onChange={(event) =>
-                        updateSelectedItem("image_url", event.target.value)
-                      }
-                      placeholder={text.imageUrlPlaceholder}
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-gray-700">
-                      {text.status}
-                    </label>
-                    <select
-                      value={selectedItem.is_available ? "available" : "unavailable"}
-                      onChange={(event) =>
-                        updateSelectedItem(
-                          "is_available",
-                          event.target.value === "available"
-                        )
-                      }
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
+                  {/* Top Action Icons */}
+                  <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleOpenEdit(dish)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-slate-700 backdrop-blur-md shadow-sm hover:bg-white"
                     >
-                      <option value="available">{text.available}</option>
-                      <option value="unavailable">{text.unavailable}</option>
-                    </select>
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDish(dish.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-red-600 backdrop-blur-md shadow-sm hover:bg-white"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-base font-black text-slate-900">{dish.name}</h3>
+                    <p className="text-xs text-slate-500 line-clamp-2 mt-1 font-medium">{dish.description}</p>
                   </div>
 
-                  <div className="rounded-3xl bg-orange-50 p-4">
-                    <p className="mb-3 flex items-center gap-2 font-black text-gray-950">
-                      <ImageIcon size={18} />
-                      {text.preview}
-                    </p>
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-base font-black text-slate-900">${dish.price.toFixed(2)}</span>
 
-                    <div
-                      className="h-44 rounded-2xl bg-cover bg-center"
-                      style={{
-                        backgroundImage: `url(${
-                          selectedItem.image_url ||
-                          "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1200&auto=format&fit=crop"
-                        })`,
-                      }}
-                    />
+                    {/* Toggle Switch matching Mockup 3 */}
+                    <button
+                      onClick={() => handleToggleAvailable(dish.id, dish.is_available)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        dish.is_available ? "bg-emerald-500" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          dish.is_available ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={handleDeleteItem}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-5 py-3 font-black text-white hover:bg-red-600"
-                  >
-                    <Trash2 size={18} />
-                    {text.deleteItem}
-                  </button>
                 </div>
               </div>
-            ) : (
-              <div className="rounded-3xl bg-orange-50 p-6 text-center">
-                <ClipboardList
-                  className="mx-auto text-orange-500"
-                  size={42}
-                />
-                <h2 className="mt-4 text-xl font-black text-gray-950">
-                  {text.selectItem}
-                </h2>
+            ))}
+
+            {/* Dashed Add New Dish Card matching Mockup 3 */}
+            <div
+              onClick={handleOpenCreate}
+              className="rounded-3xl border-2 border-dashed border-orange-300 bg-orange-50/20 p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-orange-50/50 hover:border-orange-400 transition min-h-[280px]"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-orange-100 text-orange-600 mb-3 shadow-inner">
+                <Plus size={24} />
               </div>
-            )}
-          </aside>
+              <span className="text-sm font-black text-orange-600">Add New Dish</span>
+            </div>
+          </div>
         </div>
       </section>
+
+      {/* Slide-over Drawer Form matching Mockup 3 */}
+      {showDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white p-8 shadow-2xl flex flex-col justify-between overflow-y-auto">
+            <div className="space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h3 className="text-xl font-black text-slate-900">
+                  {editingId ? "Edit Dish" : "Add New Dish"}
+                </h3>
+                <button
+                  onClick={() => setShowDrawer(false)}
+                  className="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveDish} className="space-y-5">
+                {/* Upload Photo Area */}
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Upload photo</label>
+                  <div className="rounded-2xl border-2 border-dashed border-slate-200 p-6 text-center space-y-2 bg-slate-50/50">
+                    <Camera className="mx-auto text-slate-400" size={32} />
+                    <p className="text-xs font-bold text-slate-600">Upload photo</p>
+                    <p className="text-[10px] text-slate-400">JPG, PNG or WEBP. Max 5MB</p>
+                  </div>
+                </div>
+
+                {/* Dish Name */}
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Dish Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={dishName}
+                    onChange={(e) => setDishName(e.target.value)}
+                    placeholder="Enter dish name"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                {/* Category */}
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category</label>
+                  <select
+                    value={dishCategory}
+                    onChange={(e) => setDishCategory(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                  >
+                    <option value="Breakfast">Breakfast</option>
+                    <option value="Lunch">Lunch</option>
+                    <option value="Dinner">Dinner</option>
+                    <option value="Soup">Soup</option>
+                    <option value="Desserts">Desserts</option>
+                    <option value="Side Dish">Side Dish</option>
+                    <option value="Appetizer">Appetizer</option>
+                    <option value="Beverages">Beverages</option>
+                  </select>
+                </div>
+
+                {/* Price */}
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Price</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-3 text-xs font-bold text-slate-400">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={dishPrice}
+                      onChange={(e) => setDishPrice(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full rounded-2xl border border-slate-200 pl-8 pr-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Description</label>
+                  <textarea
+                    rows={3}
+                    value={dishDescription}
+                    onChange={(e) => setDishDescription(e.target.value)}
+                    placeholder="Enter dish description..."
+                    className="w-full rounded-2xl border border-slate-200 p-4 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                {/* Available Toggle */}
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-xs font-bold text-slate-700">Available</span>
+                  <button
+                    type="button"
+                    onClick={() => setDishAvailable(!dishAvailable)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      dishAvailable ? "bg-emerald-500" : "bg-slate-300"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        dishAvailable ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Drawer Footer Buttons matching Mockup 3 */}
+                <div className="space-y-2 pt-4">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="w-full rounded-2xl bg-orange-500 py-3.5 text-xs font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50"
+                  >
+                    {isSaving ? "Saving..." : "Save Dish"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDrawer(false)}
+                    className="w-full rounded-2xl bg-slate-100 py-3 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

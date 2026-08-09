@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowLeft, Clock, MapPin, Phone, Star, Utensils } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { ArrowLeft, Clock, Loader2, MapPin, Phone, Star, Utensils } from "lucide-react";
+import { use, useEffect, useState } from "react";
+import { db, doc, getDoc, collection, query, where, getDocs } from "@/lib/firebase";
 import BookingSection from "@/components/BookingSection";
 import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -11,36 +14,55 @@ type RestaurantPageProps = {
   }>;
 };
 
-export const dynamic = "force-dynamic";
-
-export default async function UserRestaurantBookingPage({
+export default function UserRestaurantBookingPage({
   params,
 }: RestaurantPageProps) {
-  const { id } = await params;
+  const { id } = use(params);
 
-  const { data: restaurant, error: restaurantError } = await supabase
-    .from("restaurants")
-    .select("*")
-    .eq("id", id)
-    .eq("approval_status", "approved")
-    .single();
+  const [restaurant, setRestaurant] = useState<any>(null);
+  const [tables, setTables] = useState<any[]>([]);
+  const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const { data: tables, error: tablesError } = await supabase
-    .from("restaurant_tables")
-    .select(
-      "id, table_name, seats, zone, status, shape, position_x, position_y, width, height, rotation, color"
-    )
-    .eq("restaurant_id", id)
-    .order("table_name", { ascending: true });
+  useEffect(() => {
+    async function loadData() {
+      setIsLoading(true);
+      try {
+        const rDoc = await getDoc(doc(db, "restaurants", id));
+        if (rDoc.exists()) {
+          setRestaurant({ id: rDoc.id, ...rDoc.data() });
+        } else {
+          setRestaurant(null);
+        }
 
-  const { data: menuItems, error: menuError } = await supabase
-    .from("menu_items")
-    .select("id, name, description, category, price, image_url, is_available")
-    .eq("restaurant_id", id)
-    .eq("is_available", true)
-    .order("created_at", { ascending: true });
+        const tQuery = query(collection(db, "tables"), where("restaurant_id", "==", id));
+        const tSnap = await getDocs(tQuery);
+        setTables(tSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-  if (restaurantError || !restaurant) {
+        const mQuery = query(collection(db, "menu_items"), where("restaurant_id", "==", id));
+        const mSnap = await getDocs(mQuery);
+        setMenuItems(mSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (error) {
+        console.error("Error loading restaurant details:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadData();
+  }, [id]);
+
+  if (isLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#fffaf5] px-6">
+        <div className="flex items-center gap-3 rounded-3xl bg-white px-6 py-5 shadow-sm">
+          <Loader2 className="animate-spin text-orange-500" />
+          <span className="font-bold text-gray-700">Loading restaurant...</span>
+        </div>
+      </main>
+    );
+  }
+
+  if (!restaurant) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#fffaf5] px-6">
         <div className="max-w-md rounded-3xl border border-orange-100 bg-white p-8 text-center shadow-sm">
@@ -61,14 +83,6 @@ export default async function UserRestaurantBookingPage({
         </div>
       </main>
     );
-  }
-
-  if (tablesError) {
-    console.error("Tables error:", tablesError.message);
-  }
-
-  if (menuError) {
-    console.error("Menu error:", menuError.message);
   }
 
   return (

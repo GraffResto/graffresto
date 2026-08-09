@@ -4,7 +4,21 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Utensils } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  auth,
+  db,
+  doc,
+  setDoc,
+  googleProvider,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  signInWithPopup,
+  createUserProfile,
+  addDoc,
+  collection,
+  formatAuthError,
+} from "@/lib/firebase";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
 
@@ -29,6 +43,7 @@ const partnerRegisterText = {
     password: "Password",
     passwordPlaceholder: "Create a password",
     nextStep: "Next Step",
+    googleOwner: "Sign Up as Owner with Google",
 
     restaurantTitle: "Restaurant Information",
     restaurantSubtitle:
@@ -48,7 +63,7 @@ const partnerRegisterText = {
 
     reviewTitle: "Submit for Admin Review",
     reviewSubtitle:
-      "Your restaurant will be created with pending status. After email verification and admin approval, you can access the partner dashboard.",
+      "Your restaurant will be created with pending status. After admin approval, you can access the partner dashboard.",
     restaurantSummary: "Restaurant Summary",
     statusAfterSubmit: "Status after submit: pending approval",
     submit: "Submit for Review",
@@ -57,8 +72,8 @@ const partnerRegisterText = {
     sideTitle: "Partner approval process",
     sideStep1Title: "1. Submit restaurant",
     sideStep1Text: "Fill owner and restaurant information.",
-    sideStep2Title: "2. Verify email",
-    sideStep2Text: "Confirm your account from your email inbox.",
+    sideStep2Title: "2. Verify details",
+    sideStep2Text: "Account details are sent for activation.",
     sideStep3Title: "3. Admin reviews",
     sideStep3Text: "Admin checks restaurant details before approval.",
     sideStep4Title: "4. Partner dashboard opens",
@@ -89,6 +104,7 @@ const partnerRegisterText = {
     password: "Parol",
     passwordPlaceholder: "Parol yarating",
     nextStep: "Keyingi qadam",
+    googleOwner: "Google bilan ega sifatidaning ro‘yxatdan o‘tishi",
 
     restaurantTitle: "Restoran ma’lumotlari",
     restaurantSubtitle:
@@ -108,7 +124,7 @@ const partnerRegisterText = {
 
     reviewTitle: "Admin tekshiruviga yuborish",
     reviewSubtitle:
-      "Restoraningiz pending holatda yaratiladi. Email tasdiqlangandan va admin approve qilgandan keyin partner panelga kira olasiz.",
+      "Restoraningiz pending holatda yaratiladi. Admin approve qilgandan keyin partner panelga kira olasiz.",
     restaurantSummary: "Restoran xulosasi",
     statusAfterSubmit: "Yuborilgandan keyingi status: pending approval",
     submit: "Tekshiruvga yuborish",
@@ -117,8 +133,8 @@ const partnerRegisterText = {
     sideTitle: "Partner approval jarayoni",
     sideStep1Title: "1. Restoranni yuborish",
     sideStep1Text: "Ega va restoran ma’lumotlarini to‘ldiring.",
-    sideStep2Title: "2. Emailni tasdiqlash",
-    sideStep2Text: "Email inbox orqali akkauntingizni tasdiqlang.",
+    sideStep2Title: "2. Ma'lumotlarni tekshirish",
+    sideStep2Text: "Ma'lumotlar faollashtirish uchun yuboriladi.",
     sideStep3Title: "3. Admin tekshiradi",
     sideStep3Text: "Admin restoran ma’lumotlarini tekshiradi.",
     sideStep4Title: "4. Partner panel ochiladi",
@@ -149,6 +165,7 @@ const partnerRegisterText = {
     password: "Пароль",
     passwordPlaceholder: "Создайте пароль",
     nextStep: "Следующий шаг",
+    googleOwner: "Регистрация владельца через Google",
 
     restaurantTitle: "Информация о ресторане",
     restaurantSubtitle:
@@ -168,7 +185,7 @@ const partnerRegisterText = {
 
     reviewTitle: "Отправить на проверку",
     reviewSubtitle:
-      "Ресторан будет создан со статусом pending. После подтверждения email и одобрения администратором вы сможете войти в партнёрский кабинет.",
+      "Ресторан будет создан со статусом pending. После одобрения администратором вы сможете войти в партнёрский кабинет.",
     restaurantSummary: "Сводка ресторана",
     statusAfterSubmit: "Статус после отправки: pending approval",
     submit: "Отправить на проверку",
@@ -177,8 +194,8 @@ const partnerRegisterText = {
     sideTitle: "Процесс одобрения партнёра",
     sideStep1Title: "1. Отправьте ресторан",
     sideStep1Text: "Заполните информацию о владельце и ресторане.",
-    sideStep2Title: "2. Подтвердите email",
-    sideStep2Text: "Подтвердите аккаунт через email.",
+    sideStep2Title: "2. Проверка данных",
+    sideStep2Text: "Данные отправляются на активацию.",
     sideStep3Title: "3. Админ проверяет",
     sideStep3Text: "Администратор проверяет данные ресторана.",
     sideStep4Title: "4. Кабинет партнёра открывается",
@@ -212,11 +229,13 @@ export default function PartnerRegisterPage() {
 
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [registeredUid, setRegisteredUid] = useState<string | null>(null);
 
   function goToRestaurantInfoStep() {
     setMessage("");
 
-    if (!fullName || !email || !password) {
+    if (!registeredUid && (!fullName || !email || !password)) {
       setMessage(text.ownerError);
       return;
     }
@@ -235,14 +254,35 @@ export default function PartnerRegisterPage() {
     setStep(3);
   }
 
+  async function handleGoogleOwnerSignUp() {
+    setMessage("");
+    setIsGoogleLoading(true);
+
+    try {
+      const res = await signInWithPopup(auth, googleProvider);
+      setRegisteredUid(res.user.uid);
+      setFullName(res.user.displayName || "Owner");
+      setEmail(res.user.email || "");
+
+      await createUserProfile(res.user.uid, {
+        email: res.user.email || "",
+        full_name: res.user.displayName || "Owner",
+        phone: ownerPhone,
+        role: "partner",
+        partner_status: "pending",
+      });
+
+      setStep(2);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error?.message || "Google owner sign up failed.");
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  }
+
   async function handlePartnerRegister() {
     setMessage("");
-
-    if (!fullName || !email || !password) {
-      setMessage(text.ownerError);
-      setStep(1);
-      return;
-    }
 
     if (!restaurantName || !cuisineType || !address) {
       setMessage(text.restaurantError);
@@ -252,52 +292,106 @@ export default function PartnerRegisterPage() {
 
     setIsLoading(true);
 
-    const origin = window.location.origin;
+    try {
+      let uid = registeredUid || auth.currentUser?.uid || null;
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${origin}/login`,
-        data: {
+      if (!uid) {
+        if (!fullName || !email || !password) {
+          setMessage(text.ownerError);
+          setStep(1);
+          setIsLoading(false);
+          return;
+        }
+
+        try {
+          const signUpRes = await createUserWithEmailAndPassword(auth, email, password);
+          uid = signUpRes.user.uid;
+        } catch (signUpErr: any) {
+          if (signUpErr?.code === "auth/email-already-in-use") {
+            const signInRes = await signInWithEmailAndPassword(auth, email, password);
+            uid = signInRes.user.uid;
+          } else {
+            throw signUpErr;
+          }
+        }
+
+        await createUserProfile(uid, {
+          email,
           full_name: fullName,
           phone: ownerPhone,
           role: "partner",
-        },
-      },
-    });
+          partner_status: "pending",
+        });
 
-    if (signUpError || !signUpData.user) {
-      setMessage(signUpError?.message || "Registration failed.");
+        // Save also in 'users' and 'partners' collections for guaranteed record matching
+        try {
+          await setDoc(doc(db, "users", uid), {
+            uid,
+            email,
+            full_name: fullName,
+            phone: ownerPhone,
+            role: "partner",
+            created_at: new Date().toISOString(),
+          });
+
+          await setDoc(doc(db, "partners", uid), {
+            uid,
+            owner_id: uid,
+            email,
+            full_name: fullName,
+            phone: ownerPhone,
+            status: "pending",
+            created_at: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.warn("Secondary partner collection sync notice:", e);
+        }
+      }
+
+      await addDoc(collection(db, "restaurants"), {
+        owner_id: uid,
+        name: restaurantName,
+        description: `Welcome to ${restaurantName}.`,
+        cuisine_type: cuisineType,
+        address,
+        city,
+        phone: restaurantPhone,
+        image_url:
+          "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop",
+        opening_time: openingTime,
+        closing_time: closingTime,
+        is_open: true,
+        approval_status: "pending",
+        rating: 5.0,
+        price: "$$",
+        created_at: new Date().toISOString(),
+      });
+
+      if (auth.currentUser) {
+        try {
+          await sendEmailVerification(auth.currentUser);
+        } catch (e) {
+          console.warn("Email verification send warning:", e);
+        }
+      }
+
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      await addDoc(collection(db, "email_verifications"), {
+        uid,
+        email,
+        code: verificationCode,
+        is_verified: false,
+        created_at: new Date().toISOString(),
+      });
+
+      router.push(`/auth/check-email?email=${encodeURIComponent(email)}&code=${verificationCode}&next=/partner/onboarding`);
+      router.refresh();
+    } catch (error: any) {
+      console.error("Partner register error:", error);
+      setMessage(formatAuthError(error, "Partner registration failed."));
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    const { error: restaurantError } = await supabase.from("restaurants").insert({
-      owner_id: signUpData.user.id,
-      name: restaurantName,
-      description: `Welcome to ${restaurantName}.`,
-      cuisine_type: cuisineType,
-      address,
-      city,
-      phone: restaurantPhone,
-      image_url:
-        "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop",
-      opening_time: openingTime,
-      closing_time: closingTime,
-      is_open: true,
-      approval_status: "pending",
-    });
-
-    if (restaurantError) {
-      setMessage(restaurantError.message);
-      setIsLoading(false);
-      return;
-    }
-
-    router.push("/auth/check-email");
-    router.refresh();
-    setIsLoading(false);
   }
 
   return (
@@ -434,6 +528,37 @@ export default function PartnerRegisterPage() {
                     className="w-full rounded-2xl bg-orange-500 px-5 py-4 font-black text-white hover:bg-orange-600"
                   >
                     {text.nextStep}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isGoogleLoading}
+                    onClick={handleGoogleOwnerSignUp}
+                    className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-300 bg-white px-5 py-4 font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+                  >
+                    {isGoogleLoading ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      <svg className="h-5 w-5" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.14C3.26 21.3 7.31 24 12 24z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.14z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.14c.95-2.83 3.6-4.98 6.72-4.98z"
+                        />
+                      </svg>
+                    )}
+                    {text.googleOwner}
                   </button>
                 </div>
               </div>

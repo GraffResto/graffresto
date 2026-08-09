@@ -2,629 +2,641 @@
 
 import Link from "next/link";
 import {
-  ArrowLeft,
+  AlertTriangle,
+  Bell,
   Building2,
+  Calendar,
+  Camera,
+  CheckCircle2,
   Clock,
-  ImageIcon,
+  CreditCard,
+  Download,
+  Globe,
+  Layers,
   Loader2,
+  LogOut,
   MapPin,
-  Phone,
-  Save,
+  MessageSquare,
+  Plus,
+  Send,
+  Settings,
+  Shield,
+  Star,
+  Store,
+  Table,
+  Trash2,
+  Users,
   Utensils,
+  BarChart3,
+  ChefHat,
+  Boxes,
+  DollarSign,
+  Gift,
+  LayoutDashboard,
+  UtensilsCrossed,
+  User,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import LogoutButton from "@/components/LogoutButton";
+import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
-
-type Restaurant = {
-  id: string;
-  owner_id: string | null;
-  name: string;
-  description: string | null;
-  cuisine_type: string | null;
-  address: string | null;
-  city: string | null;
-  phone: string | null;
-  image_url: string | null;
-  opening_time: string | null;
-  closing_time: string | null;
-  is_open: boolean;
-  approval_status: string | null;
-};
-
-const settingsText = {
-  en: {
-    back: "Back to Partner Panel",
-    label: "Restaurant Settings",
-    title: "Edit restaurant profile",
-    subtitle:
-      "Update your restaurant information. Customers will see this information on the booking page.",
-    noRestaurant: "No restaurant found",
-    noRestaurantText:
-      "This partner account does not have a restaurant yet, or the restaurant is not connected.",
-    loading: "Loading restaurant...",
-    save: "Save Changes",
-    saving: "Saving...",
-    saved: "Restaurant settings saved successfully.",
-    basicInfo: "Basic Information",
-    restaurantName: "Restaurant Name",
-    description: "Description",
-    cuisineType: "Cuisine Type",
-    city: "City",
-    address: "Address",
-    phone: "Phone Number",
-    imageUrl: "Image URL",
-    workingHours: "Working Hours",
-    openingTime: "Opening Time",
-    closingTime: "Closing Time",
-    status: "Restaurant Status",
-    open: "Open",
-    closed: "Closed",
-    preview: "Preview",
-    previewText:
-      "This is how your restaurant image and main information may appear to customers.",
-    namePlaceholder: "Bella Vista",
-    descriptionPlaceholder: "Write a short description about your restaurant",
-    cuisinePlaceholder: "Italian, Uzbek, Korean...",
-    cityPlaceholder: "Tashkent",
-    addressPlaceholder: "Full restaurant address",
-    phonePlaceholder: "+998 90 123 45 67",
-    imagePlaceholder: "https://...",
-  },
-
-  uz: {
-    back: "Partner panelga qaytish",
-    label: "Restoran sozlamalari",
-    title: "Restoran profilini tahrirlash",
-    subtitle:
-      "Restoran ma’lumotlarini yangilang. Mijozlar bu ma’lumotlarni booking sahifasida ko‘radi.",
-    noRestaurant: "Restoran topilmadi",
-    noRestaurantText:
-      "Bu partner akkauntiga restoran biriktirilmagan yoki restoran ulanmagan.",
-    loading: "Restoran yuklanmoqda...",
-    save: "O‘zgarishlarni saqlash",
-    saving: "Saqlanmoqda...",
-    saved: "Restoran sozlamalari muvaffaqiyatli saqlandi.",
-    basicInfo: "Asosiy ma’lumotlar",
-    restaurantName: "Restoran nomi",
-    description: "Tavsif",
-    cuisineType: "Oshxona turi",
-    city: "Shahar",
-    address: "Manzil",
-    phone: "Telefon raqam",
-    imageUrl: "Rasm URL",
-    workingHours: "Ish vaqti",
-    openingTime: "Ochilgan vaqti",
-    closingTime: "Yopilgan vaqti",
-    status: "Restoran holati",
-    open: "Ochiq",
-    closed: "Yopiq",
-    preview: "Ko‘rinish",
-    previewText:
-      "Mijozlarga restoran rasmi va asosiy ma’lumotlar taxminan shunday ko‘rinadi.",
-    namePlaceholder: "Bella Vista",
-    descriptionPlaceholder: "Restoraningiz haqida qisqa tavsif yozing",
-    cuisinePlaceholder: "Italyan, O‘zbek, Koreys...",
-    cityPlaceholder: "Toshkent",
-    addressPlaceholder: "Restoranning to‘liq manzili",
-    phonePlaceholder: "+998 90 123 45 67",
-    imagePlaceholder: "https://...",
-  },
-
-  ru: {
-    back: "Назад в партнёрский кабинет",
-    label: "Настройки ресторана",
-    title: "Редактировать профиль ресторана",
-    subtitle:
-      "Обновите информацию о ресторане. Клиенты увидят эти данные на странице бронирования.",
-    noRestaurant: "Ресторан не найден",
-    noRestaurantText:
-      "К этому партнёрскому аккаунту ресторан не привязан или ресторан не подключён.",
-    loading: "Загрузка ресторана...",
-    save: "Сохранить изменения",
-    saving: "Сохранение...",
-    saved: "Настройки ресторана успешно сохранены.",
-    basicInfo: "Основная информация",
-    restaurantName: "Название ресторана",
-    description: "Описание",
-    cuisineType: "Тип кухни",
-    city: "Город",
-    address: "Адрес",
-    phone: "Номер телефона",
-    imageUrl: "URL изображения",
-    workingHours: "Рабочие часы",
-    openingTime: "Время открытия",
-    closingTime: "Время закрытия",
-    status: "Статус ресторана",
-    open: "Открыто",
-    closed: "Закрыто",
-    preview: "Предпросмотр",
-    previewText:
-      "Так изображение и основная информация ресторана могут выглядеть для клиентов.",
-    namePlaceholder: "Bella Vista",
-    descriptionPlaceholder: "Напишите короткое описание ресторана",
-    cuisinePlaceholder: "Итальянская, Узбекская, Корейская...",
-    cityPlaceholder: "Ташкент",
-    addressPlaceholder: "Полный адрес ресторана",
-    phonePlaceholder: "+998 90 123 45 67",
-    imagePlaceholder: "https://...",
-  },
-};
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+  updateDoc,
+  onAuthStateChanged,
+  signOut,
+} from "@/lib/firebase";
 
 export default function PartnerSettingsPage() {
+  const router = useRouter();
   const { language } = useLanguage();
-  const text = settingsText[language];
 
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const [restaurantId, setRestaurantId] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [cuisineType, setCuisineType] = useState("");
-  const [city, setCity] = useState("");
-  const [address, setAddress] = useState("");
-  const [phone, setPhone] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [openingTime, setOpeningTime] = useState("09:00");
-  const [closingTime, setClosingTime] = useState("23:00");
-  const [isOpen, setIsOpen] = useState(true);
+  const [activeSubnav, setActiveSubnav] = useState<
+    "general" | "profile" | "hours" | "team" | "notifications" | "billing" | "integrations" | "danger"
+  >("general");
+
+  // Form State matching General Settings Mockup
+  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [cuisineType, setCuisineType] = useState("Uzbek, European");
+  const [phoneNumber, setPhoneNumber] = useState("+998 90 123 45 67");
+  const [emailAddress, setEmailAddress] = useState("info@afsonarestaurant.uz");
+  const [address, setAddress] = useState("123 Amir Temur Street, Chilonzor District");
+  const [city, setCity] = useState("Tashkent");
+  const [district, setDistrict] = useState("Chilonzor");
+
+  // Regional
+  const [currency, setCurrency] = useState("UZS");
+  const [timezone, setTimezone] = useState("Asia/Tashkent");
+
+  // Booking Preferences
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [requirePrepayment, setRequirePrepayment] = useState(true);
+  const [defaultDuration, setDefaultDuration] = useState("90");
+  const [cancellationWindow, setCancellationWindow] = useState("2");
+
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    async function loadRestaurant() {
-      setIsLoading(true);
-
-      const { data: userData } = await supabase.auth.getUser();
-
-      if (!userData.user) {
-        setRestaurant(null);
-        setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
         return;
       }
 
-      const { data, error } = await supabase
-        .from("restaurants")
-        .select(
-          "id, owner_id, name, description, cuisine_type, address, city, phone, image_url, opening_time, closing_time, is_open, approval_status"
-        )
-        .eq("owner_id", userData.user.id)
-        .single();
+      try {
+        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
+        const rSnap = await getDocs(rQuery);
 
-      if (error || !data) {
-        setRestaurant(null);
+        if (!rSnap.empty) {
+          const rDoc = rSnap.docs[0];
+          setRestaurantId(rDoc.id);
+          const d = rDoc.data();
+          setRestaurantName(d.name || "Afsona Restaurant");
+          setCuisineType(Array.isArray(d.cuisine_type) ? d.cuisine_type.join(", ") : d.cuisine_type || "Uzbek, European");
+          setPhoneNumber(d.phone || "+998 90 123 45 67");
+          setEmailAddress(d.email || "info@afsonarestaurant.uz");
+          setAddress(d.address || "123 Amir Temur Street, Chilonzor District");
+          setCity(d.city || "Tashkent");
+          setDistrict(d.district || "Chilonzor");
+        }
+      } catch (err) {
+        console.error("Settings load error:", err);
+      } finally {
         setIsLoading(false);
-        return;
       }
-
-      const restaurantData = data as Restaurant;
-
-      setRestaurant(restaurantData);
-      setName(restaurantData.name || "");
-      setDescription(restaurantData.description || "");
-      setCuisineType(restaurantData.cuisine_type || "");
-      setCity(restaurantData.city || "");
-      setAddress(restaurantData.address || "");
-      setPhone(restaurantData.phone || "");
-      setImageUrl(restaurantData.image_url || "");
-      setOpeningTime(restaurantData.opening_time || "09:00");
-      setClosingTime(restaurantData.closing_time || "23:00");
-      setIsOpen(Boolean(restaurantData.is_open));
-
-      setIsLoading(false);
-    }
-
-    loadRestaurant();
-  }, []);
-
-  async function handleSave() {
-    if (!restaurant) {
-      return;
-    }
-
-    setIsSaving(true);
-    setMessage("");
-
-    const { error } = await supabase
-      .from("restaurants")
-      .update({
-        name,
-        description,
-        cuisine_type: cuisineType,
-        city,
-        address,
-        phone,
-        image_url: imageUrl,
-        opening_time: openingTime,
-        closing_time: closingTime,
-        is_open: isOpen,
-      })
-      .eq("id", restaurant.id);
-
-    if (error) {
-      setMessage(error.message);
-      setIsSaving(false);
-      return;
-    }
-
-    setRestaurant({
-      ...restaurant,
-      name,
-      description,
-      cuisine_type: cuisineType,
-      city,
-      address,
-      phone,
-      image_url: imageUrl,
-      opening_time: openingTime,
-      closing_time: closingTime,
-      is_open: isOpen,
     });
 
-    setMessage(text.saved);
-    setIsSaving(false);
+    return () => unsubscribe();
+  }, [router]);
+
+  async function handleSaveSettings(e: React.FormEvent) {
+    e.preventDefault();
+    if (!restaurantId) return;
+
+    setIsSaving(true);
+    try {
+      await updateDoc(doc(db, "restaurants", restaurantId), {
+        name: restaurantName,
+        cuisine_type: cuisineType.split(",").map((s) => s.trim()),
+        phone: phoneNumber,
+        email: emailAddress,
+        address: address,
+        city: city,
+        district: district,
+        updated_at: new Date().toISOString(),
+      });
+      alert("Settings saved successfully!");
+    } catch (err) {
+      console.error("Error saving settings:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleLogout() {
+    await signOut(auth);
+    router.push("/login");
   }
 
   if (isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#fffaf5] px-6">
-        <div className="flex items-center gap-3 rounded-3xl bg-white px-6 py-5 shadow-sm">
-          <Loader2 className="animate-spin text-orange-500" />
-          <span className="font-bold text-gray-700">{text.loading}</span>
+      <main className="flex min-h-screen items-center justify-center bg-[#070e17] text-white">
+        <div className="flex items-center gap-3 rounded-3xl bg-[#0f172a] border border-white/10 p-8 shadow-2xl">
+          <Loader2 className="animate-spin text-orange-500" size={24} />
+          <span className="font-bold text-gray-300">Loading Settings...</span>
         </div>
-      </main>
-    );
-  }
-
-  if (!restaurant) {
-    return (
-      <main className="min-h-screen bg-[#fffaf5]">
-        <header className="border-b border-orange-100 bg-white">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-            <Link href="/partner" className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-white">
-                <Utensils size={18} />
-              </div>
-
-              <span className="text-xl font-black text-gray-950">
-                DineFlow Partner
-              </span>
-            </Link>
-
-            <div className="flex items-center gap-3">
-              <LanguageSwitcher />
-              <LogoutButton />
-            </div>
-          </div>
-        </header>
-
-        <section className="mx-auto max-w-3xl px-6 py-20">
-          <div className="rounded-[2rem] border border-orange-100 bg-white p-8 text-center shadow-sm">
-            <Building2 className="mx-auto text-orange-500" size={46} />
-
-            <h1 className="mt-4 text-3xl font-black text-gray-950">
-              {text.noRestaurant}
-            </h1>
-
-            <p className="mt-3 text-gray-600">{text.noRestaurantText}</p>
-
-            <Link
-              href="/partner"
-              className="mt-6 inline-flex rounded-2xl bg-orange-500 px-6 py-3 font-black text-white hover:bg-orange-600"
-            >
-              {text.back}
-            </Link>
-          </div>
-        </section>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#fffaf5]">
-      <header className="border-b border-orange-100 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/partner" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-white">
-              <Utensils size={18} />
+    <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
+      {/* Sidebar matching Settings Mockup */}
+      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 px-2 py-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
+              <Utensils size={20} />
             </div>
+            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
+          </div>
 
-            <span className="text-xl font-black text-gray-950">
-              DineFlow Partner
-            </span>
+          <nav className="space-y-1 text-sm font-semibold">
+            <Link
+              href="/partner"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <LayoutDashboard size={18} />
+              <span>Dashboard</span>
+            </Link>
+
+            <Link
+              href="/partner/bookings"
+              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <div className="flex items-center gap-3">
+                <Calendar size={18} />
+                <span>Bookings</span>
+              </div>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
+                3
+              </span>
+            </Link>
+
+            <Link
+              href="/partner/floor-plan"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Table size={18} />
+              <span>Floor Map</span>
+            </Link>
+
+            <Link
+              href="/partner/menu"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <UtensilsCrossed size={18} />
+              <span>Menu</span>
+            </Link>
+
+            <Link
+              href="/partner/analytics"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <BarChart3 size={18} />
+              <span>Analytics</span>
+            </Link>
+
+            <Link
+              href="/partner/crm"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Users size={18} />
+              <span>CRM</span>
+            </Link>
+
+            <Link
+              href="/partner/promotions"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Gift size={18} />
+              <span>Promotions</span>
+            </Link>
+          </nav>
+
+          <div className="pt-4 border-t border-slate-800 space-y-1">
+            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              ERP Modules
+            </p>
+            <Link
+              href="/partner/kitchen"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <ChefHat size={16} /> Kitchen
+            </Link>
+            <Link
+              href="/partner/inventory"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Boxes size={16} /> Inventory
+            </Link>
+            <Link
+              href="/partner/finance"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <DollarSign size={16} /> Finance
+            </Link>
+            <Link
+              href="/partner/staff"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <User size={16} /> Staff
+            </Link>
+          </div>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t border-slate-800">
+          <Link
+            href="/partner/settings"
+            className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-2.5 text-xs font-bold text-white shadow-md shadow-orange-500/20"
+          >
+            <Settings size={16} /> Settings
           </Link>
 
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-7xl px-6 py-10">
-        <Link
-          href="/partner"
-          className="mb-8 inline-flex items-center gap-2 font-bold text-gray-600 hover:text-orange-600"
-        >
-          <ArrowLeft size={18} />
-          {text.back}
-        </Link>
-
-        <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="font-bold text-orange-600">{text.label}</p>
-
-            <h1 className="mt-2 text-4xl font-black text-gray-950">
-              {text.title}
-            </h1>
-
-            <p className="mt-3 max-w-2xl text-gray-600">{text.subtitle}</p>
-          </div>
+          <Link
+            href="/partner/profile"
+            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
+              <Store size={18} />
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
+              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
+            </div>
+          </Link>
 
           <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleSave}
-            className="flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-6 py-4 font-black text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
           >
-            {isSaving ? (
-              <Loader2 className="animate-spin" size={18} />
-            ) : (
-              <Save size={18} />
-            )}
-
-            {isSaving ? text.saving : text.save}
+            <LogOut size={16} /> Logout
           </button>
         </div>
+      </aside>
 
-        {message && (
-          <div
-            className={`mb-6 rounded-2xl p-4 text-sm font-bold ${
-              message === text.saved
-                ? "bg-green-50 text-green-700"
-                : "bg-red-50 text-red-700"
-            }`}
-          >
-            {message}
+      {/* Main Workspace Area matching Settings Mockup */}
+      <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Top Header */}
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur-md px-8 py-5">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900">Settings</h1>
+            <p className="text-xs font-medium text-slate-500">Manage your restaurant profile and preferences</p>
           </div>
-        )}
 
-        <div className="grid gap-8 lg:grid-cols-[1fr_0.75fr]">
-          <section className="space-y-8">
-            <div className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-sm">
-              <div className="mb-6 flex items-center gap-3">
-                <Building2 className="text-orange-500" />
-                <h2 className="text-2xl font-black text-gray-950">
-                  {text.basicInfo}
-                </h2>
-              </div>
+          <div className="flex items-center gap-4">
+            <LanguageSwitcher />
 
-              <div className="grid gap-5 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.restaurantName}
-                  </label>
-                  <input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder={text.namePlaceholder}
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.cuisineType}
-                  </label>
-                  <input
-                    value={cuisineType}
-                    onChange={(event) => setCuisineType(event.target.value)}
-                    placeholder={text.cuisinePlaceholder}
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.description}
-                  </label>
-                  <textarea
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    placeholder={text.descriptionPlaceholder}
-                    rows={4}
-                    className="w-full resize-none rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.city}
-                  </label>
-                  <div className="relative">
-                    <MapPin
-                      className="absolute left-4 top-3.5 text-gray-400"
-                      size={18}
-                    />
-                    <input
-                      value={city}
-                      onChange={(event) => setCity(event.target.value)}
-                      placeholder={text.cityPlaceholder}
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 pl-11 outline-none focus:border-orange-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.phone}
-                  </label>
-                  <div className="relative">
-                    <Phone
-                      className="absolute left-4 top-3.5 text-gray-400"
-                      size={18}
-                    />
-                    <input
-                      value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
-                      placeholder={text.phonePlaceholder}
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 pl-11 outline-none focus:border-orange-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.address}
-                  </label>
-                  <input
-                    value={address}
-                    onChange={(event) => setAddress(event.target.value)}
-                    placeholder={text.addressPlaceholder}
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.imageUrl}
-                  </label>
-                  <div className="relative">
-                    <ImageIcon
-                      className="absolute left-4 top-3.5 text-gray-400"
-                      size={18}
-                    />
-                    <input
-                      value={imageUrl}
-                      onChange={(event) => setImageUrl(event.target.value)}
-                      placeholder={text.imagePlaceholder}
-                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 pl-11 outline-none focus:border-orange-500"
-                    />
-                  </div>
-                </div>
-              </div>
+            <div className="relative">
+              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                <Bell size={18} />
+              </button>
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
+                3
+              </span>
             </div>
 
-            <div className="rounded-[2rem] border border-orange-100 bg-white p-6 shadow-sm">
-              <div className="mb-6 flex items-center gap-3">
-                <Clock className="text-orange-500" />
-                <h2 className="text-2xl font-black text-gray-950">
-                  {text.workingHours}
-                </h2>
-              </div>
+            <Link
+              href="/partner/profile"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
+            >
+              A
+            </Link>
+          </div>
+        </header>
 
-              <div className="grid gap-5 md:grid-cols-3">
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.openingTime}
-                  </label>
-                  <input
-                    type="time"
-                    value={openingTime}
-                    onChange={(event) => setOpeningTime(event.target.value)}
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.closingTime}
-                  </label>
-                  <input
-                    type="time"
-                    value={closingTime}
-                    onChange={(event) => setClosingTime(event.target.value)}
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    {text.status}
-                  </label>
-                  <select
-                    value={isOpen ? "open" : "closed"}
-                    onChange={(event) => setIsOpen(event.target.value === "open")}
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-                  >
-                    <option value="open">{text.open}</option>
-                    <option value="closed">{text.closed}</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <aside className="h-fit rounded-[2rem] border border-orange-100 bg-white p-6 shadow-sm lg:sticky lg:top-8">
-            <h2 className="text-2xl font-black text-gray-950">
-              {text.preview}
-            </h2>
-
-            <p className="mt-2 text-sm leading-6 text-gray-500">
-              {text.previewText}
-            </p>
-
-            <div className="mt-6 overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-sm">
-              <div
-                className="h-56 bg-cover bg-center"
-                style={{
-                  backgroundImage: `url(${
-                    imageUrl ||
-                    "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop"
-                  })`,
-                }}
-              />
-
-              <div className="p-5">
-                <span
-                  className={`rounded-full px-4 py-2 text-sm font-black ${
-                    isOpen
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-700"
+        {/* Settings Grid matching Settings Mockup */}
+        <div className="p-8 grid gap-8 lg:grid-cols-4">
+          {/* Left Settings Sub-Nav Bar matching Settings Mockup */}
+          <div className="lg:col-span-1 rounded-[2.5rem] border border-slate-200 bg-white p-4 space-y-1.5 shadow-sm h-fit">
+            {[
+              { id: "general", label: "General", icon: Building2 },
+              { id: "profile", label: "Restaurant Profile", icon: Store },
+              { id: "hours", label: "Business Hours", icon: Clock },
+              { id: "team", label: "Team & Roles", icon: Users },
+              { id: "notifications", label: "Notifications", icon: Bell },
+              { id: "billing", label: "Payments & Billing", icon: CreditCard },
+              { id: "integrations", label: "Integrations", icon: Layers },
+              { id: "danger", label: "Danger Zone", icon: AlertTriangle, color: "text-red-500" },
+            ].map((sub) => {
+              const Icon = sub.icon;
+              const isActive = activeSubnav === sub.id;
+              return (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveSubnav(sub.id as any)}
+                  className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-xs font-black transition ${
+                    isActive
+                      ? "bg-orange-50 text-orange-600 border border-orange-200"
+                      : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
-                  {isOpen ? text.open : text.closed}
-                </span>
+                  <Icon size={16} className={sub.color || (isActive ? "text-orange-600" : "text-slate-400")} />
+                  <span className={sub.color || ""}>{sub.label}</span>
+                </button>
+              );
+            })}
+          </div>
 
-                <h3 className="mt-4 text-2xl font-black text-gray-950">
-                  {name || text.restaurantName}
-                </h3>
+          {/* Right Main Form Workspace matching Settings Mockup */}
+          <div className="lg:col-span-3">
+            {activeSubnav === "general" && (
+              <form onSubmit={handleSaveSettings} className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm space-y-8">
+                {/* Section 1: Restaurant Information */}
+                <div className="space-y-6">
+                  <h3 className="text-base font-black text-slate-900 border-b border-slate-100 pb-3">
+                    Restaurant Information
+                  </h3>
 
-                <p className="mt-2 text-sm text-gray-500">
-                  {cuisineType || text.cuisineType} • {city || text.city}
-                </p>
+                  {/* Logo Upload Circle */}
+                  <div className="flex items-center gap-6">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-orange-500 text-white font-black text-2xl shadow-lg ring-4 ring-orange-100">
+                      <Utensils size={32} />
+                    </div>
+                    <div>
+                      <button type="button" className="text-xs font-black text-orange-600 hover:underline">
+                        Change Logo
+                      </button>
+                      <p className="text-[10px] text-slate-400">JPG, PNG or SVG. Max size 2MB.</p>
+                    </div>
+                  </div>
 
-                <p className="mt-3 text-sm leading-6 text-gray-600">
-                  {description || text.descriptionPlaceholder}
-                </p>
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Restaurant Name</label>
+                      <input
+                        type="text"
+                        required
+                        value={restaurantName}
+                        onChange={(e) => setRestaurantName(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
 
-                <div className="mt-4 space-y-2 text-sm text-gray-600">
-                  <p>{address || text.addressPlaceholder}</p>
-                  <p>{phone || text.phonePlaceholder}</p>
-                  <p>
-                    {openingTime} - {closingTime}
-                  </p>
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Cuisine Type</label>
+                      <input
+                        type="text"
+                        required
+                        value={cuisineType}
+                        onChange={(e) => setCuisineType(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Phone Number</label>
+                      <input
+                        type="text"
+                        required
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Email</label>
+                      <input
+                        type="email"
+                        required
+                        value={emailAddress}
+                        onChange={(e) => setEmailAddress(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Address</label>
+                    <input
+                      type="text"
+                      required
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">City</label>
+                      <input
+                        type="text"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">District</label>
+                      <input
+                        type="text"
+                        value={district}
+                        onChange={(e) => setDistrict(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: Regional Settings */}
+                <div className="space-y-6 pt-4 border-t border-slate-100">
+                  <h3 className="text-base font-black text-slate-900">Regional Settings</h3>
+
+                  <div className="grid gap-6 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Language</label>
+                      <select className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none">
+                        <option value="en">English</option>
+                        <option value="ru">Русский</option>
+                        <option value="uz">O'zbekcha</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Currency</label>
+                      <select
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none"
+                      >
+                        <option value="UZS">UZS</option>
+                        <option value="USD">USD ($)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Timezone</label>
+                      <select
+                        value={timezone}
+                        onChange={(e) => setTimezone(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none"
+                      >
+                        <option value="Asia/Tashkent">Asia/Tashkent</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Booking Preferences matching General Settings Mockup */}
+                <div className="space-y-6 pt-4 border-t border-slate-100">
+                  <h3 className="text-base font-black text-slate-900">Booking Preferences</h3>
+
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-200">
+                      <span className="text-xs font-bold text-slate-700">Auto-approve bookings</span>
+                      <button
+                        type="button"
+                        onClick={() => setAutoApprove(!autoApprove)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          autoApprove ? "bg-orange-500" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            autoApprove ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-200">
+                      <span className="text-xs font-bold text-slate-700">Require prepayment for parties 6+</span>
+                      <button
+                        type="button"
+                        onClick={() => setRequirePrepayment(!requirePrepayment)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          requirePrepayment ? "bg-orange-500" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            requirePrepayment ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                        Default booking duration (minutes)
+                      </label>
+                      <input
+                        type="number"
+                        value={defaultDuration}
+                        onChange={(e) => setDefaultDuration(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                        Cancellation window (hours)
+                      </label>
+                      <input
+                        type="number"
+                        value={cancellationWindow}
+                        onChange={(e) => setCancellationWindow(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Footer Buttons matching General Settings Mockup */}
+                <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100">
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-slate-200 px-6 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="rounded-2xl bg-orange-500 px-8 py-3 text-xs font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50"
+                  >
+                    {isSaving ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {activeSubnav === "integrations" && (
+              <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm space-y-6">
+                <h3 className="text-base font-black text-slate-900">Integrations</h3>
+
+                <div className="grid gap-6 sm:grid-cols-2">
+                  {[
+                    { name: "Payme Gateway", status: "Connected", desc: "Process card payments via Payme" },
+                    { name: "Click Gateway", status: "Connected", desc: "Process payments via Click.uz" },
+                    { name: "Google Calendar", status: "Connected", desc: "Sync bookings with Google Calendar" },
+                    { name: "Telegram Bot", status: "Connected", desc: "Receive instant Telegram alerts" },
+                  ].map((integ) => (
+                    <div key={integ.name} className="flex items-center justify-between p-5 rounded-3xl border border-slate-200 bg-slate-50/50">
+                      <div>
+                        <p className="text-sm font-black text-slate-900">{integ.name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{integ.desc}</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-[10px] font-black text-emerald-600">
+                        {integ.status}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
-            <button
-              type="button"
-              disabled={isSaving}
-              onClick={handleSave}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-6 py-4 font-black text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {isSaving ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <Save size={18} />
-              )}
+            {activeSubnav === "danger" && (
+              <div className="rounded-[2.5rem] border border-red-200 bg-red-50/30 p-8 shadow-sm space-y-6">
+                <h3 className="text-base font-black text-red-600">Danger Zone</h3>
 
-              {isSaving ? text.saving : text.save}
-            </button>
-          </aside>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-5 rounded-2xl bg-white border border-red-200">
+                    <div>
+                      <p className="text-xs font-black text-slate-900">Deactivate Restaurant Profile</p>
+                      <p className="text-[11px] text-slate-500">Temporarily hide your restaurant from public search</p>
+                    </div>
+                    <button className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-100">
+                      Deactivate
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-5 rounded-2xl bg-white border border-red-200">
+                    <div>
+                      <p className="text-xs font-black text-slate-900">Delete Restaurant Account</p>
+                      <p className="text-[11px] text-slate-500">Permanently delete all bookings, menu, and financial data</p>
+                    </div>
+                    <button className="rounded-xl bg-red-600 px-5 py-2.5 text-xs font-black text-white hover:bg-red-700 shadow-md shadow-red-600/20">
+                      Delete Account
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </section>
     </main>

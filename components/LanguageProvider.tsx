@@ -4,7 +4,6 @@ import {
   createContext,
   ReactNode,
   useContext,
-  useEffect,
   useState,
 } from "react";
 import { Language, translations } from "@/lib/translations";
@@ -18,19 +17,21 @@ type LanguageContextType = {
 const LanguageContext = createContext<LanguageContextType | null>(null);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>("en");
-
-  useEffect(() => {
-    const savedLanguage = localStorage.getItem("dineflow_language") as Language;
-
-    if (savedLanguage === "en" || savedLanguage === "uz" || savedLanguage === "ru") {
-      setLanguageState(savedLanguage);
+  const [language, setLanguageState] = useState<Language>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dineflow_language") as Language;
+      if (saved === "en" || saved === "uz" || saved === "ru") {
+        return saved;
+      }
     }
-  }, []);
+    return "en";
+  });
 
   function setLanguage(newLanguage: Language) {
     setLanguageState(newLanguage);
-    localStorage.setItem("dineflow_language", newLanguage);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("dineflow_language", newLanguage);
+    }
   }
 
   const value: LanguageContextType = {

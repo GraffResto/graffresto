@@ -13,18 +13,15 @@ import { useEffect, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import { supabase } from "@/lib/supabaseClient";
-
-type RestaurantRelation = {
-  name: string;
-  city: string | null;
-  cuisine_type: string | null;
-};
-
-type RestaurantTableRelation = {
-  table_name: string;
-  seats: number;
-};
+import {
+  auth,
+  db,
+  collection,
+  query,
+  where,
+  getDocs,
+  onAuthStateChanged,
+} from "@/lib/firebase";
 
 type Booking = {
   id: string;
@@ -33,8 +30,8 @@ type Booking = {
   guests_count: number;
   status: string;
   notes: string | null;
-  restaurants: RestaurantRelation[] | RestaurantRelation | null;
-  restaurant_tables: RestaurantTableRelation[] | RestaurantTableRelation | null;
+  restaurant_name?: string | null;
+  table_name?: string | null;
 };
 
 const bookingsText = {
@@ -82,36 +79,8 @@ const bookingsText = {
   },
 };
 
-function getRestaurant(
-  restaurants: Booking["restaurants"]
-): RestaurantRelation | null {
-  if (!restaurants) {
-    return null;
-  }
-
-  if (Array.isArray(restaurants)) {
-    return restaurants[0] || null;
-  }
-
-  return restaurants;
-}
-
-function getRestaurantTable(
-  restaurantTables: Booking["restaurant_tables"]
-): RestaurantTableRelation | null {
-  if (!restaurantTables) {
-    return null;
-  }
-
-  if (Array.isArray(restaurantTables)) {
-    return restaurantTables[0] || null;
-  }
-
-  return restaurantTables;
-}
-
 function getStatusStyle(status: string) {
-  if (status === "approved") {
+  if (status === "approved" || status === "confirmed") {
     return "bg-green-50 text-green-700";
   }
 
@@ -134,53 +103,40 @@ export default function UserBookingsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    async function loadBookings() {
-      setIsLoading(true);
-
-      const { data: userData } = await supabase.auth.getUser();
-
-      if (!userData.user) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
         setBookings([]);
         setIsLoading(false);
         return;
       }
 
-      const { data, error } = await supabase
-        .from("bookings")
-        .select(
-          `
-          id,
-          booking_date,
-          booking_time,
-          guests_count,
-          status,
-          notes,
-          restaurants (
-            name,
-            city,
-            cuisine_type
-          ),
-          restaurant_tables (
-            table_name,
-            seats
-          )
-        `
-        )
-        .eq("customer_id", userData.user.id)
-        .order("created_at", { ascending: false });
+      try {
+        const bQuery = query(
+          collection(db, "bookings"),
+          where("customer_id", "==", user.uid)
+        );
+        const bSnap = await getDocs(bQuery);
 
-      if (error) {
-        console.error("Bookings error:", error.message);
-        setBookings([]);
+        const list: Booking[] = bSnap.docs.map((d) => ({
+          id: d.id,
+          booking_date: d.data().booking_date || "",
+          booking_time: d.data().booking_time || "",
+          guests_count: d.data().guests_count || 1,
+          status: d.data().status || "pending",
+          notes: d.data().notes || null,
+          restaurant_name: d.data().restaurant_name || "Restaurant",
+          table_name: d.data().table_name || "T1",
+        }));
+
+        setBookings(list);
+      } catch (error) {
+        console.error("Bookings error:", error);
+      } finally {
         setIsLoading(false);
-        return;
       }
+    });
 
-      setBookings((data || []) as unknown as Booking[]);
-      setIsLoading(false);
-    }
-
-    loadBookings();
+    return () => unsubscribe();
   }, []);
 
   return (
@@ -249,11 +205,6 @@ export default function UserBookingsPage() {
         ) : (
           <div className="grid gap-5">
             {bookings.map((booking) => {
-              const restaurant = getRestaurant(booking.restaurants);
-              const restaurantTable = getRestaurantTable(
-                booking.restaurant_tables
-              );
-
               return (
                 <div
                   key={booking.id}
@@ -263,7 +214,7 @@ export default function UserBookingsPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
                         <h2 className="text-2xl font-black text-gray-950">
-                          {restaurant?.name || "Restaurant"}
+                          {booking.restaurant_name || "Restaurant"}
                         </h2>
 
                         <span
@@ -274,11 +225,6 @@ export default function UserBookingsPage() {
                           {booking.status}
                         </span>
                       </div>
-
-                      <p className="mt-1 text-sm text-gray-500">
-                        {restaurant?.cuisine_type || "Restaurant"} •{" "}
-                        {restaurant?.city || "City"}
-                      </p>
 
                       <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-600">
                         <span className="flex items-center gap-2">
@@ -298,8 +244,7 @@ export default function UserBookingsPage() {
 
                         <span className="flex items-center gap-2">
                           <Table2 size={17} />
-                          {text.table}:{" "}
-                          {restaurantTable?.table_name || "N/A"}
+                          {text.table}: {booking.table_name || "N/A"}
                         </span>
                       </div>
 

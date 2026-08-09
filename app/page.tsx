@@ -1,32 +1,56 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import LandingContent from "@/components/LandingContent";
-import { supabase } from "@/lib/supabaseClient";
+import { db, collection, query, where, getDocs } from "@/lib/firebase";
 
-export const dynamic = "force-dynamic";
+type RestaurantPreview = {
+  id: string;
+  name: string;
+  type: string;
+  location: string;
+  rating: number;
+  price: string;
+  status: string;
+  image: string;
+};
 
-export default async function HomePage() {
-  const { data: restaurants, error } = await supabase
-    .from("restaurants")
-    .select("id, name, cuisine_type, city, image_url, is_open")
-    .eq("approval_status", "approved")
-    .order("created_at", { ascending: false });
+export default function HomePage() {
+  const [restaurantList, setRestaurantList] = useState<RestaurantPreview[]>([]);
 
-  if (error) {
-    console.error("Supabase restaurants error:", error.message);
-  }
+  useEffect(() => {
+    async function loadRestaurants() {
+      try {
+        const q = query(
+          collection(db, "restaurants"),
+          where("approval_status", "==", "approved")
+        );
+        const snap = await getDocs(q);
 
-  const restaurantList =
-    restaurants?.map((restaurant) => ({
-      id: restaurant.id,
-      name: restaurant.name,
-      type: restaurant.cuisine_type || "Restaurant",
-      location: restaurant.city || "Tashkent",
-      rating: 4.8,
-      price: "$$",
-      status: restaurant.is_open ? "Open" : "Closed",
-      image:
-        restaurant.image_url ||
-        "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop",
-    })) || [];
+        const list: RestaurantPreview[] = snap.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            name: data.name || "Restaurant",
+            type: data.cuisine_type || "Restaurant",
+            location: data.city || "Tashkent",
+            rating: data.rating || 4.8,
+            price: data.price || "$$",
+            status: data.is_open ? "Open" : "Closed",
+            image:
+              data.image_url ||
+              "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop",
+          };
+        });
+
+        setRestaurantList(list);
+      } catch (error) {
+        console.error("Home page restaurants error:", error);
+      }
+    }
+
+    loadRestaurants();
+  }, []);
 
   return <LandingContent restaurantList={restaurantList} />;
 }
