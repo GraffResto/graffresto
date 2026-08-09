@@ -2,219 +2,50 @@
 
 import Link from "next/link";
 import {
-  ArrowUpRight,
-  CalendarDays,
-  ChartLine,
-  CheckCircle,
-  ClipboardList,
-  Clock,
+  Bell,
+  Calendar,
+  ChevronDown,
+  DollarSign,
+  Download,
   Loader2,
   LogOut,
-  Map,
-  Settings,
+  TrendingDown,
   TrendingUp,
+  UserX,
   Users,
   Utensils,
-  XCircle,
+  Table,
+  BarChart3,
+  ChefHat,
+  Boxes,
+  Gift,
+  Settings,
+  Store,
+  LayoutDashboard,
+  UtensilsCrossed,
+  User,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import {
-  auth,
-  db,
-  collection,
-  query,
-  where,
-  getDocs,
-  onAuthStateChanged,
-  signOut,
-} from "@/lib/firebase";
+import { auth, signOut } from "@/lib/firebase";
 
-type Booking = {
-  id: string;
-  booking_date: string;
-  booking_time: string;
-  guests_count: number;
-  status: string;
-  created_at: string;
-  table_id: string | null;
-  occasion: string | null;
-};
-
-const t = {
-  en: {
-    title: "Analytics",
-    subtitle: "Booking trends, peak hours, occupancy and revenue insights.",
-    dashboard: "Dashboard", bookings: "Bookings", floorMap: "Floor Map",
-    menu: "Menu", analytics: "Analytics", settings: "Settings", logout: "Logout",
-    loading: "Loading analytics...",
-    totalBookings: "Total Bookings", confirmed: "Confirmed", pending: "Pending",
-    cancelled: "Cancelled", guests: "Total Guests", avgGuests: "Avg Guests/Booking",
-    completionRate: "Completion Rate", peakHour: "Peak Hour",
-    topTables: "Most Booked Tables", recentBookings: "Recent Bookings",
-    byStatus: "Bookings by Status", byDay: "Last 7 Days",
-    noData: "No bookings yet for this period.",
-    today: "Today", thisWeek: "This Week", thisMonth: "This Month", allTime: "All Time",
-    ownerLabel: "Restaurant Owner",
-    statusConfirmed: "Confirmed", statusPending: "Pending",
-    statusCancelled: "Cancelled", statusCompleted: "Completed",
-  },
-  uz: {
-    title: "Tahlil",
-    subtitle: "Bron tendentsiyalari, eng faol soatlar, bandlik va daromad.",
-    dashboard: "Dashboard", bookings: "Bronlar", floorMap: "Floor Map",
-    menu: "Menyu", analytics: "Tahlil", settings: "Sozlamalar", logout: "Chiqish",
-    loading: "Tahlil yuklanmoqda...",
-    totalBookings: "Jami bronlar", confirmed: "Tasdiqlangan", pending: "Kutilmoqda",
-    cancelled: "Bekor", guests: "Jami mehmonlar", avgGuests: "O'rt. mehmon/bron",
-    completionRate: "Yakunlash %", peakHour: "Eng faol soat",
-    topTables: "Ko'p bronlangan stollar", recentBookings: "So'nggi bronlar",
-    byStatus: "Status bo'yicha", byDay: "So'nggi 7 kun",
-    noData: "Bu davrda bronlar yo'q.",
-    today: "Bugun", thisWeek: "Bu hafta", thisMonth: "Bu oy", allTime: "Hammasi",
-    ownerLabel: "Restoran egasi",
-    statusConfirmed: "Tasdiqlangan", statusPending: "Kutilmoqda",
-    statusCancelled: "Bekor", statusCompleted: "Yakunlangan",
-  },
-  ru: {
-    title: "Аналитика",
-    subtitle: "Тренды бронирований, пиковые часы, загрузка и выручка.",
-    dashboard: "Дэшборд", bookings: "Брони", floorMap: "План зала",
-    menu: "Меню", analytics: "Аналитика", settings: "Настройки", logout: "Выйти",
-    loading: "Загрузка аналитики...",
-    totalBookings: "Всего броней", confirmed: "Подтверждено", pending: "В ожидании",
-    cancelled: "Отменено", guests: "Всего гостей", avgGuests: "Ср. гостей/бронь",
-    completionRate: "% завершения", peakHour: "Пиковый час",
-    topTables: "Топ столов", recentBookings: "Последние брони",
-    byStatus: "По статусам", byDay: "Последние 7 дней",
-    noData: "Бронирований за этот период нет.",
-    today: "Сегодня", thisWeek: "Эта неделя", thisMonth: "Этот месяц", allTime: "Всё время",
-    ownerLabel: "Владелец ресторана",
-    statusConfirmed: "Подтверждено", statusPending: "В ожидании",
-    statusCancelled: "Отменено", statusCompleted: "Завершено",
-  },
-};
-
-function BarChart({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="flex h-36 items-end gap-2">
-      {data.map((item, i) => (
-        <div key={i} className="flex flex-1 flex-col items-center gap-1">
-          <span className="text-xs font-bold text-gray-500">{item.value > 0 ? item.value : ""}</span>
-          <div
-            className="w-full rounded-t-lg bg-orange-400 transition-all duration-500"
-            style={{ height: `${(item.value / max) * 110}px`, minHeight: item.value > 0 ? "6px" : "2px", opacity: item.value === 0 ? 0.2 : 1 }}
-          />
-          <span className="text-xs text-gray-400">{item.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DonutChart({ segments }: { segments: { label: string; value: number; color: string }[] }) {
-  const total = segments.reduce((s, seg) => s + seg.value, 0);
-  if (total === 0) return <p className="text-sm text-gray-400">No data</p>;
-  let cumulative = 0;
-  const r = 48, cx = 60, cy = 60, circ = 2 * Math.PI * r;
-  return (
-    <div className="flex items-center gap-5">
-      <svg width="120" height="120" viewBox="0 0 120 120">
-        {segments.filter((s) => s.value > 0).map((seg, i) => {
-          const pct = seg.value / total;
-          const offset = circ * (1 - cumulative);
-          const dash = circ * pct;
-          cumulative += pct;
-          return (
-            <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={seg.color} strokeWidth="18"
-              strokeDasharray={`${dash} ${circ - dash}`} strokeDashoffset={offset}
-              style={{ transform: "rotate(-90deg)", transformOrigin: "60px 60px" }} />
-          );
-        })}
-        <text x={cx} y={cy + 6} textAnchor="middle" style={{ fontSize: 18, fontWeight: 900, fill: "#111" }}>{total}</text>
-      </svg>
-      <div className="space-y-2">
-        {segments.map((seg, i) => (
-          <div key={i} className="flex items-center gap-2 text-xs">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seg.color }} />
-            <span className="text-gray-600">{seg.label} <strong>{seg.value}</strong></span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ title, value, subtitle, icon: Icon, accent = false }: {
-  title: string; value: string | number; subtitle?: string; icon: React.ElementType; accent?: boolean;
-}) {
-  return (
-    <div className={`rounded-3xl p-6 ${accent ? "bg-orange-500 text-white" : "border border-gray-200 bg-white shadow-sm"}`}>
-      <div className="flex items-start justify-between">
-        <div className={`rounded-xl p-2 ${accent ? "bg-white/20" : "bg-orange-50"}`}>
-          <Icon size={20} className={accent ? "text-white" : "text-orange-500"} />
-        </div>
-        <ArrowUpRight size={15} className={accent ? "text-white/40" : "text-gray-200"} />
-      </div>
-      <p className={`mt-4 text-3xl font-black ${accent ? "text-white" : "text-gray-950"}`}>{value}</p>
-      <p className={`mt-1 text-sm font-bold ${accent ? "text-white/80" : "text-gray-600"}`}>{title}</p>
-      {subtitle && <p className={`mt-0.5 text-xs ${accent ? "text-white/60" : "text-gray-400"}`}>{subtitle}</p>}
-    </div>
-  );
-}
-
-export default function PartnerAnalyticsPage() {
-  const { language } = useLanguage();
-  const text = t[language];
+export default function AnalyticsSuitePage() {
   const router = useRouter();
+  const { language } = useLanguage();
 
-  const [restaurantName, setRestaurantName] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [period, setPeriod] = useState<"today" | "week" | "month" | "all">("all");
+  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [timeRange, setTimeRange] = useState<"Today" | "Week" | "Month" | "Year">("Month");
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) {
         router.push("/login");
         return;
       }
-
-      try {
-        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
-        const rSnap = await getDocs(rQuery);
-
-        if (rSnap.empty) {
-          setIsLoading(false);
-          return;
-        }
-
-        const rDoc = rSnap.docs[0];
-        setRestaurantName(rDoc.data().name || "Restaurant");
-
-        const bQuery = query(collection(db, "bookings"), where("restaurant_id", "==", rDoc.id));
-        const bSnap = await getDocs(bQuery);
-
-        const list: Booking[] = bSnap.docs.map((d) => ({
-          id: d.id,
-          booking_date: d.data().booking_date || "",
-          booking_time: d.data().booking_time || "",
-          guests_count: d.data().guests_count || 1,
-          status: d.data().status || "pending",
-          created_at: d.data().created_at || "",
-          table_id: d.data().table_id || null,
-          occasion: d.data().occasion || null,
-        }));
-
-        setBookings(list);
-      } catch (error) {
-        console.error("Analytics error:", error);
-      } finally {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     });
 
     return () => unsubscribe();
@@ -225,237 +56,468 @@ export default function PartnerAnalyticsPage() {
     router.push("/login");
   }
 
-  const now = new Date();
-  const filtered = bookings.filter((b) => {
-    const d = new Date(b.booking_date);
-    if (period === "today") return d.toDateString() === now.toDateString();
-    if (period === "week") { const w = new Date(now); w.setDate(w.getDate() - 7); return d >= w; }
-    if (period === "month") { const m = new Date(now); m.setMonth(m.getMonth() - 1); return d >= m; }
-    return true;
-  });
-
-  const total = filtered.length;
-  const confirmed = filtered.filter((b) => b.status === "approved" || b.status === "confirmed").length;
-  const pending = filtered.filter((b) => b.status === "pending").length;
-  const cancelled = filtered.filter((b) => b.status === "cancelled").length;
-  const completed = filtered.filter((b) => b.status === "completed").length;
-  const totalGuests = filtered.reduce((s, b) => s + (b.guests_count || 0), 0);
-  const avgGuests = total > 0 ? (totalGuests / total).toFixed(1) : "0";
-  const completionRate = total > 0 ? Math.round(((confirmed + completed) / total) * 100) : 0;
-
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(now); d.setDate(d.getDate() - (6 - i)); return d;
-  });
-  const weekData = weekDays.map((d) => ({
-    label: d.toLocaleDateString("en-US", { weekday: "short" }),
-    value: bookings.filter((b) => new Date(b.booking_date).toDateString() === d.toDateString()).length,
-  }));
-
-  const tableCounts: Record<string, number> = {};
-  filtered.forEach((b) => { if (b.table_id) tableCounts[b.table_id] = (tableCounts[b.table_id] || 0) + 1; });
-  const topTables = Object.entries(tableCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-  const hourCounts: Record<number, number> = {};
-  filtered.forEach((b) => {
-    const h = parseInt(b.booking_time?.split(":")[0] ?? "12");
-    hourCounts[h] = (hourCounts[h] || 0) + 1;
-  });
-  const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
-
-  const navItems = [
-    { label: text.dashboard, icon: ChartLine, href: "/partner" },
-    { label: text.bookings, icon: CalendarDays, href: "/partner/bookings" },
-    { label: text.floorMap, icon: Map, href: "/partner/floor-plan" },
-    { label: text.menu, icon: ClipboardList, href: "/partner/menu" },
-    { label: text.analytics, icon: ChartLine, href: "/partner/analytics", active: true },
-    { label: text.settings, icon: Settings, href: "/partner/settings" },
-  ];
+  if (isLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#070e17] text-white">
+        <div className="flex items-center gap-3 rounded-3xl bg-[#0f172a] border border-white/10 p-8 shadow-2xl">
+          <Loader2 className="animate-spin text-orange-500" size={24} />
+          <span className="font-bold text-gray-300">Loading Analytics...</span>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="flex min-h-screen bg-gray-50">
-      <aside className="hidden w-64 flex-col bg-[#07111f] p-6 text-white lg:flex">
-        <Link href="/" className="mb-10 flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500"><Utensils size={18} /></div>
-          <span className="text-lg font-black">DineFlow</span>
-        </Link>
-        <nav className="flex-1 space-y-1 text-sm font-semibold">
-          {navItems.map((item) => (
-            <Link key={item.href} href={item.href}
-              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 transition ${
-                (item as { active?: boolean }).active ? "bg-orange-500 text-white" : "text-gray-400 hover:bg-white/10 hover:text-white"
-              }`}>
-              <item.icon size={18} />{item.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="mt-6 space-y-3">
-          <div className="rounded-2xl bg-white/5 p-4">
-            <p className="text-sm font-black text-white">{restaurantName || "..."}</p>
-            <p className="mt-0.5 text-xs text-gray-400">{text.ownerLabel}</p>
+    <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
+      {/* Sidebar matching Analytics Mockup */}
+      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 px-2 py-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
+              <Utensils size={20} />
+            </div>
+            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
           </div>
-          <button onClick={handleLogout} className="flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-gray-400 hover:bg-white/10 hover:text-white">
-            <LogOut size={16} />{text.logout}
+
+          <nav className="space-y-1 text-sm font-semibold">
+            <Link
+              href="/partner"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <LayoutDashboard size={18} />
+              <span>Dashboard</span>
+            </Link>
+
+            <Link
+              href="/partner/bookings"
+              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <div className="flex items-center gap-3">
+                <Calendar size={18} />
+                <span>Bookings</span>
+              </div>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
+                3
+              </span>
+            </Link>
+
+            <Link
+              href="/partner/floor-plan"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Table size={18} />
+              <span>Floor Map</span>
+            </Link>
+
+            <Link
+              href="/partner/menu"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <UtensilsCrossed size={18} />
+              <span>Menu</span>
+            </Link>
+
+            <Link
+              href="/partner/analytics"
+              className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-3 text-white font-bold shadow-md shadow-orange-500/20"
+            >
+              <BarChart3 size={18} />
+              <span>Analytics</span>
+            </Link>
+
+            <Link
+              href="/partner/crm"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Users size={18} />
+              <span>CRM</span>
+            </Link>
+
+            <Link
+              href="/partner/promotions"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Gift size={18} />
+              <span>Promotions</span>
+            </Link>
+          </nav>
+
+          <div className="pt-4 border-t border-slate-800 space-y-1">
+            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              ERP Modules
+            </p>
+            <Link
+              href="/partner/kitchen"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <ChefHat size={16} /> Kitchen
+            </Link>
+            <Link
+              href="/partner/inventory"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Boxes size={16} /> Inventory
+            </Link>
+            <Link
+              href="/partner/finance"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <DollarSign size={16} /> Finance
+            </Link>
+          </div>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t border-slate-800">
+          <Link
+            href="/partner/settings"
+            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+          >
+            <Settings size={16} /> Settings
+          </Link>
+
+          <Link
+            href="/partner/profile"
+            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
+              <Store size={18} />
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
+              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
+            </div>
+          </Link>
+
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+          >
+            <LogOut size={16} /> Logout
           </button>
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+      {/* Main Workspace Area matching Analytics Mockup */}
+      <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Top Header */}
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur-md px-8 py-5">
           <div>
-            <h1 className="text-2xl font-black text-gray-950">{text.title}</h1>
-            <p className="text-sm text-gray-500">{text.subtitle}</p>
+            <h1 className="text-2xl font-black text-slate-900">Analytics</h1>
+            <p className="text-xs font-medium text-slate-500">Track your restaurant's performance</p>
           </div>
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 text-sm font-black text-orange-600">
-              {restaurantName.charAt(0) || "P"}
+
+          <div className="flex items-center gap-4">
+            {/* Time Range Pills */}
+            <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 p-1">
+              {(["Today", "Week", "Month", "Year"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setTimeRange(r)}
+                  className={`rounded-xl px-3.5 py-1.5 text-xs font-black transition ${
+                    timeRange === r ? "bg-orange-500 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
             </div>
+
+            <button className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-sm">
+              <Download size={14} /> Export
+            </button>
+
+            <LanguageSwitcher />
+
+            <div className="relative">
+              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                <Bell size={18} />
+              </button>
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
+                3
+              </span>
+            </div>
+
+            <Link
+              href="/partner/profile"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
+            >
+              A
+            </Link>
           </div>
         </header>
 
-        <section className="flex-1 p-6 lg:p-8">
-          {isLoading ? (
-            <div className="flex items-center gap-3 text-gray-500">
-              <Loader2 className="animate-spin text-orange-500" />{text.loading}
+        {/* Content Container */}
+        <div className="p-8 space-y-8">
+          {/* KPI Summary Cards matching Analytics Mockup */}
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Card 1: Revenue */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Revenue</p>
+                <p className="text-3xl font-black text-slate-900 mt-1">$18,420</p>
+                <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 mt-1">
+                  <TrendingUp size={14} /> ↑ 12.4% <span className="text-slate-400 font-normal">vs last month</span>
+                </p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+                <DollarSign size={24} />
+              </div>
             </div>
-          ) : (
-            <>
-              <div className="mb-6 flex flex-wrap gap-2">
-                {(["today", "week", "month", "all"] as const).map((p) => (
-                  <button key={p} onClick={() => setPeriod(p)}
-                    className={`rounded-2xl px-5 py-2.5 text-sm font-black transition ${
-                      period === p ? "bg-orange-500 text-white" : "border border-gray-200 bg-white text-gray-700 hover:bg-orange-50"
-                    }`}>
-                    {p === "today" ? text.today : p === "week" ? text.thisWeek : p === "month" ? text.thisMonth : text.allTime}
-                  </button>
-                ))}
+
+            {/* Card 2: Bookings */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Bookings</p>
+                <p className="text-3xl font-black text-slate-900 mt-1">412</p>
+                <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 mt-1">
+                  <TrendingUp size={14} /> ↑ 8.1% <span className="text-slate-400 font-normal">vs last month</span>
+                </p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-600">
+                <Calendar size={24} />
+              </div>
+            </div>
+
+            {/* Card 3: Avg Party Size */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Avg. Party Size</p>
+                <p className="text-3xl font-black text-slate-900 mt-1">3.4</p>
+                <p className="text-[11px] font-medium text-slate-400 mt-1">— vs last month</p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
+                <Users size={24} />
+              </div>
+            </div>
+
+            {/* Card 4: No-show Rate */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">No-show Rate</p>
+                <p className="text-3xl font-black text-slate-900 mt-1">4.2%</p>
+                <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 mt-1">
+                  <TrendingDown size={14} /> ↓ -1.1% <span className="text-slate-400 font-normal">vs last month</span>
+                </p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600">
+                <UserX size={24} />
+              </div>
+            </div>
+          </div>
+
+          {/* Charts Row: Revenue Trend + Booking Status Breakdown */}
+          <div className="grid gap-8 lg:grid-cols-3">
+            {/* Left 2 Cols: Revenue Trend SVG Area Chart */}
+            <div className="lg:col-span-2 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black text-slate-900">Revenue Trend</h3>
+                <select className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 outline-none">
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
               </div>
 
-              {total === 0 ? (
-                <div className="rounded-3xl border border-gray-200 bg-white p-12 text-center shadow-sm">
-                  <TrendingUp className="mx-auto text-orange-300" size={48} />
-                  <p className="mt-4 text-gray-500">{text.noData}</p>
+              {/* Curve Chart Container with Tooltip matching Analytics Mockup */}
+              <div className="relative h-64 w-full pt-6">
+                {/* May 20 $22,310 Tooltip */}
+                <div className="absolute left-[58%] top-4 z-10 rounded-2xl bg-slate-900 px-3 py-1.5 text-white shadow-xl text-[10px] font-bold text-center">
+                  <p className="opacity-70 text-[9px]">May 20</p>
+                  <p className="text-xs font-black text-orange-400">$22,310</p>
                 </div>
-              ) : (
-                <>
-                  <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-                    <StatCard title={text.totalBookings} value={total} icon={CalendarDays} accent />
-                    <StatCard title={text.confirmed} value={confirmed} subtitle={`${completionRate}% ${text.completionRate}`} icon={CheckCircle} />
-                    <StatCard title={text.guests} value={totalGuests} subtitle={`${text.avgGuests}: ${avgGuests}`} icon={Users} />
-                    <StatCard title={text.cancelled} value={cancelled} icon={XCircle} />
+
+                <svg className="h-full w-full overflow-visible" viewBox="0 0 600 200">
+                  <defs>
+                    <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#f97316" stopOpacity="0.4" />
+                      <stop offset="100%" stopColor="#f97316" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  <path
+                    d="M 0 150 C 40 120, 80 140, 120 100 C 160 130, 200 80, 240 110 C 280 70, 320 40, 360 20 C 400 60, 440 40, 480 80 C 520 70, 560 90, 600 110 L 600 200 L 0 200 Z"
+                    fill="url(#revenueGrad)"
+                  />
+                  <path
+                    d="M 0 150 C 40 120, 80 140, 120 100 C 160 130, 200 80, 240 110 C 280 70, 320 40, 360 20 C 400 60, 440 40, 480 80 C 520 70, 560 90, 600 110"
+                    fill="none"
+                    stroke="#f97316"
+                    strokeWidth="3.5"
+                  />
+                  <circle cx="360" cy="20" r="5" fill="#f97316" className="animate-ping" />
+                  <circle cx="360" cy="20" r="5" fill="#f97316" />
+                </svg>
+
+                {/* X Axis Labels */}
+                <div className="flex justify-between pt-3 text-[10px] font-bold text-slate-400">
+                  <span>May 1</span>
+                  <span>May 6</span>
+                  <span>May 11</span>
+                  <span>May 16</span>
+                  <span>May 21</span>
+                  <span>May 26</span>
+                  <span>May 31</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right 1 Col: Booking Status Breakdown Donut Chart */}
+            <div className="rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-sm space-y-6 flex flex-col justify-between">
+              <h3 className="text-base font-black text-slate-900">Booking Status Breakdown</h3>
+
+              {/* Donut Chart Visual */}
+              <div className="relative flex items-center justify-center">
+                <div className="h-44 w-44 rounded-full border-[18px] border-emerald-500 border-t-orange-500 border-r-sky-500 border-b-red-500 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-black text-slate-900">412</span>
+                  <span className="text-[10px] font-bold text-slate-400">Total</span>
+                </div>
+              </div>
+
+              {/* Status List */}
+              <div className="space-y-2.5 text-xs font-bold">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Approved
+                  </span>
+                  <span>68% (281)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-orange-500" /> Pending
+                  </span>
+                  <span>12% (49)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> Completed
+                  </span>
+                  <span>15% (62)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Cancelled
+                  </span>
+                  <span>5% (20)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Peak Hours Heatmap + Top Performing Dishes */}
+          <div className="grid gap-8 lg:grid-cols-2">
+            {/* Heatmap Card */}
+            <div className="rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+              <h3 className="text-base font-black text-slate-900">Peak Hours Heatmap</h3>
+
+              <div className="space-y-2 overflow-x-auto">
+                <div className="grid grid-cols-12 gap-1 text-[9px] font-bold text-slate-400 text-center pl-8">
+                  {["11AM", "12PM", "1PM", "2PM", "3PM", "4PM", "5PM", "6PM", "7PM", "8PM", "9PM", "10PM"].map((h) => (
+                    <span key={h}>{h}</span>
+                  ))}
+                </div>
+
+                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+                  <div key={day} className="flex items-center gap-2">
+                    <span className="w-6 text-[10px] font-bold text-slate-400">{day}</span>
+                    <div className="grid grid-cols-12 gap-1 flex-1">
+                      {[1, 2, 3, 2, 4, 3, 5, 7, 9, 10, 8, 4].map((intensity, idx) => (
+                        <div
+                          key={idx}
+                          className="h-6 rounded-md transition hover:scale-105"
+                          style={{
+                            backgroundColor: `rgba(249, 115, 22, ${intensity * 0.1})`,
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
+                ))}
 
-                  <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                    <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                      <h2 className="mb-5 text-lg font-black text-gray-950">{text.byDay}</h2>
-                      <BarChart data={weekData} />
-                    </div>
-                    <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                      <h2 className="mb-5 text-lg font-black text-gray-950">{text.byStatus}</h2>
-                      <DonutChart segments={[
-                        { label: text.statusConfirmed, value: confirmed, color: "#22c55e" },
-                        { label: text.statusPending, value: pending, color: "#f97316" },
-                        { label: text.statusCancelled, value: cancelled, color: "#ef4444" },
-                        { label: text.statusCompleted, value: completed, color: "#3b82f6" },
-                      ]} />
-                    </div>
+                <div className="flex items-center justify-end gap-2 pt-3 text-[10px] font-bold text-slate-400">
+                  <span>Low Traffic</span>
+                  <div className="flex gap-1">
+                    {[0.1, 0.3, 0.5, 0.7, 0.9].map((op, i) => (
+                      <span key={i} className="h-3 w-3 rounded-sm" style={{ backgroundColor: `rgba(249, 115, 22, ${op})` }} />
+                    ))}
                   </div>
+                  <span>High Traffic</span>
+                </div>
+              </div>
+            </div>
 
-                  <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                    <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                      <h2 className="mb-5 text-lg font-black text-gray-950">{text.topTables}</h2>
-                      {topTables.length === 0 ? (
-                        <p className="text-sm text-gray-400">{text.noData}</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {topTables.map(([id, count], i) => (
-                            <div key={id} className="flex items-center gap-3">
-                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-orange-100 text-xs font-black text-orange-600">{i + 1}</span>
-                              <div className="flex-1">
-                                <div className="flex justify-between text-sm font-bold mb-1">
-                                  <span className="text-gray-700">{id.slice(0, 8)}...</span>
-                                  <span className="text-gray-500">{count} bookings</span>
-                                </div>
-                                <div className="h-2 w-full rounded-full bg-orange-50">
-                                  <div className="h-2 rounded-full bg-orange-400" style={{ width: `${(count / (topTables[0]?.[1] || 1)) * 100}%` }} />
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+            {/* Top Performing Dishes Card */}
+            <div className="rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+              <h3 className="text-base font-black text-slate-900">Top Performing Dishes</h3>
 
-                    <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                      <h2 className="mb-5 text-lg font-black text-gray-950">Key Insights</h2>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between rounded-2xl bg-orange-50 p-4">
-                          <div>
-                            <p className="text-sm font-bold text-orange-700">{text.peakHour}</p>
-                            <p className="mt-1 text-2xl font-black text-gray-950">
-                              {peakHour ? `${String(peakHour[0]).padStart(2, "0")}:00` : "—"}
-                            </p>
-                          </div>
-                          <Clock className="text-orange-400" size={28} />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl bg-green-50 p-4">
-                          <div>
-                            <p className="text-sm font-bold text-green-700">{text.completionRate}</p>
-                            <p className="mt-1 text-2xl font-black text-gray-950">{completionRate}%</p>
-                          </div>
-                          <CheckCircle className="text-green-400" size={28} />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl bg-blue-50 p-4">
-                          <div>
-                            <p className="text-sm font-bold text-blue-700">{text.avgGuests}</p>
-                            <p className="mt-1 text-2xl font-black text-gray-950">{avgGuests}</p>
-                          </div>
-                          <Users className="text-blue-400" size={28} />
-                        </div>
+              <div className="space-y-4">
+                {[
+                  { name: "Pasta Bologna", orders: 342, pct: 100, img: "https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=200" },
+                  { name: "Grilled Steak", orders: 287, pct: 84, img: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=200" },
+                  { name: "Spicy Fried Chicken", orders: 254, pct: 74, img: "https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?q=80&w=200" },
+                  { name: "Salmon Teriyaki", orders: 198, pct: 58, img: "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?q=80&w=200" },
+                  { name: "Tiramisu", orders: 156, pct: 45, img: "https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?q=80&w=200" },
+                ].map((dish) => (
+                  <div key={dish.name} className="flex items-center gap-4">
+                    <img src={dish.img} alt={dish.name} className="h-10 w-10 rounded-2xl object-cover" />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-slate-900">{dish.name}</span>
+                        <span className="text-slate-500">{dish.orders} orders</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-full rounded-full bg-orange-500" style={{ width: `${dish.pct}%` }} />
                       </div>
                     </div>
                   </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
-                  <div className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                    <h2 className="mb-5 text-lg font-black text-gray-950">{text.recentBookings}</h2>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-gray-100 text-left text-gray-400">
-                            <th className="pb-3 pr-4 font-bold">Date</th>
-                            <th className="pb-3 pr-4 font-bold">Time</th>
-                            <th className="pb-3 pr-4 font-bold">Guests</th>
-                            <th className="pb-3 pr-4 font-bold">Occasion</th>
-                            <th className="pb-3 font-bold">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.slice(0, 10).map((b) => (
-                            <tr key={b.id} className="border-b border-gray-50 last:border-0">
-                              <td className="py-3 pr-4 font-medium text-gray-800">{b.booking_date}</td>
-                              <td className="py-3 pr-4 text-gray-600">{b.booking_time}</td>
-                              <td className="py-3 pr-4 text-gray-600">{b.guests_count}</td>
-                              <td className="py-3 pr-4 text-gray-500 text-xs">{b.occasion && b.occasion !== "none" ? b.occasion : "—"}</td>
-                              <td className="py-3">
-                                <span className={`rounded-full px-2 py-1 text-xs font-black ${
-                                  b.status === "approved" || b.status === "confirmed" ? "bg-green-100 text-green-700" :
-                                  b.status === "cancelled" ? "bg-red-100 text-red-700" :
-                                  b.status === "completed" ? "bg-blue-100 text-blue-700" :
-                                  "bg-orange-100 text-orange-700"
-                                }`}>{b.status}</span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </section>
-      </div>
+          {/* Bookings Trend by Table Size Table */}
+          <div className="rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+            <h3 className="text-base font-black text-slate-900">Bookings Trend by Table Size</h3>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-bold text-slate-700">
+                <thead className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-black uppercase text-slate-400">
+                  <tr>
+                    <th className="py-3 px-4">Party Size</th>
+                    <th className="py-3 px-4">Bookings</th>
+                    <th className="py-3 px-4">% of Total</th>
+                    <th className="py-3 px-4">Avg Spend</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr>
+                    <td className="py-3 px-4 text-slate-900 font-black">2-top</td>
+                    <td className="py-3 px-4">128</td>
+                    <td className="py-3 px-4">31.1%</td>
+                    <td className="py-3 px-4 text-slate-900 font-black">$34.20</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 px-4 text-slate-900 font-black">4-top</td>
+                    <td className="py-3 px-4">174</td>
+                    <td className="py-3 px-4">42.2%</td>
+                    <td className="py-3 px-4 text-slate-900 font-black">$45.80</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 px-4 text-slate-900 font-black">6-top</td>
+                    <td className="py-3 px-4">78</td>
+                    <td className="py-3 px-4">18.9%</td>
+                    <td className="py-3 px-4 text-slate-900 font-black">$56.30</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 px-4 text-slate-900 font-black">8+ top</td>
+                    <td className="py-3 px-4">32</td>
+                    <td className="py-3 px-4">7.8%</td>
+                    <td className="py-3 px-4 text-slate-900 font-black">$71.40</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

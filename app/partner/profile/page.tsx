@@ -2,19 +2,35 @@
 
 import Link from "next/link";
 import {
-  ArrowLeft,
-  Building2,
+  Bell,
+  Calendar,
+  Camera,
   CheckCircle2,
-  KeyRound,
+  ChevronRight,
+  Copy,
+  ExternalLink,
+  Globe,
+  Key,
   Loader2,
   LogOut,
-  Mail,
   MapPin,
-  Phone,
+  Shield,
   ShieldCheck,
-  Store,
+  Smartphone,
+  Star,
   User,
   Utensils,
+  Table,
+  BarChart3,
+  ChefHat,
+  Boxes,
+  DollarSign,
+  Gift,
+  Settings,
+  Store,
+  LayoutDashboard,
+  UtensilsCrossed,
+  Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,62 +39,32 @@ import { useLanguage } from "@/components/LanguageProvider";
 import {
   auth,
   db,
-  collection,
-  query,
-  where,
-  getDocs,
   doc,
+  getDoc,
   updateDoc,
   onAuthStateChanged,
   signOut,
-  sendPasswordResetEmail,
 } from "@/lib/firebase";
 
-type PartnerProfile = {
-  id?: string;
-  email: string;
-  full_name: string;
-  phone?: string;
-  partner_status?: string;
-};
-
-type RestaurantDetails = {
-  id?: string;
-  name: string;
-  cuisine_type?: string;
-  city?: string;
-  address?: string;
-  phone?: string;
-  stir?: string;
-  approval_status?: string;
-};
-
-export default function PartnerProfilePage() {
+export default function OwnerProfilePage() {
   const router = useRouter();
   const { language } = useLanguage();
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [resetSending, setResetSending] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // States
-  const [uid, setUid] = useState("");
-  const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [partnerStatus, setPartnerStatus] = useState("approved");
-
-  // Restaurant details
-  const [restaurantId, setRestaurantId] = useState("");
-  const [restaurantName, setRestaurantName] = useState("");
-  const [cuisineType, setCuisineType] = useState("");
+  // Form State
+  const [firstName, setFirstName] = useState("Afsona");
+  const [lastName, setLastName] = useState("Yusupova");
+  const [email, setEmail] = useState("afsona@graffresto.uz");
+  const [phone, setPhone] = useState("+998 90 123 45 67");
   const [city, setCity] = useState("Tashkent");
-  const [address, setAddress] = useState("");
-  const [restaurantPhone, setRestaurantPhone] = useState("");
-  const [stir, setStir] = useState("");
+  const [district, setDistrict] = useState("Chilonzor");
+  const [twoFactor, setTwoFactor] = useState(true);
 
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error">("success");
+  const [activeTab, setActiveTab] = useState<"account" | "security" | "activity">("account");
+  const [copied, setCopied] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -87,99 +73,51 @@ export default function PartnerProfilePage() {
         return;
       }
 
-      setUid(user.uid);
-      setEmail(user.email || "");
-
+      setUserId(user.uid);
       try {
-        // 1. Fetch Profile
-        const pQuery = query(collection(db, "profiles"), where("uid", "==", user.uid));
-        const pSnap = await getDocs(pQuery);
-        if (!pSnap.empty) {
-          const pData = pSnap.docs[0].data() as PartnerProfile;
-          setFullName(pData.full_name || user.displayName || "Founder");
-          setPhone(pData.phone || "");
-          setPartnerStatus(pData.partner_status || "approved");
-        } else {
-          setFullName(user.displayName || "Founder");
-        }
-
-        // 2. Fetch Restaurant
-        const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
-        const rSnap = await getDocs(rQuery);
-        if (!rSnap.empty) {
-          const rDoc = rSnap.docs[0];
-          const rData = rDoc.data() as RestaurantDetails;
-          setRestaurantId(rDoc.id);
-          setRestaurantName(rData.name || "My Restaurant");
-          setCuisineType(rData.cuisine_type || "Fine Dining");
-          setCity(rData.city || "Tashkent");
-          setAddress(rData.address || "");
-          setRestaurantPhone(rData.phone || "");
-          setStir(rData.stir || "784920194");
+        const pSnap = await getDoc(doc(db, "profiles", user.uid));
+        if (pSnap.exists()) {
+          const d = pSnap.data();
+          const parts = (d.full_name || "Afsona Yusupova").split(" ");
+          setFirstName(parts[0] || "Afsona");
+          setLastName(parts[1] || "Yusupova");
+          setEmail(user.email || d.email || "afsona@graffresto.uz");
+          setPhone(d.phone || "+998 90 123 45 67");
         }
       } catch (err) {
-        console.error("Error loading partner profile:", err);
+        console.error("Profile load error:", err);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     });
 
     return () => unsubscribe();
   }, [router]);
 
-  async function handleSavePartnerProfile(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage("");
-    setSaving(true);
-
-    try {
-      // 1. Update profiles doc
-      const pSnap = await getDocs(query(collection(db, "profiles"), where("uid", "==", uid)));
-      if (!pSnap.empty) {
-        await updateDoc(doc(db, "profiles", pSnap.docs[0].id), {
-          full_name: fullName,
-          phone,
-        });
-      }
-
-      // 2. Update restaurant doc if present
-      if (restaurantId) {
-        await updateDoc(doc(db, "restaurants", restaurantId), {
-          name: restaurantName,
-          cuisine_type: cuisineType,
-          city,
-          address,
-          phone: restaurantPhone,
-          stir,
-        });
-      }
-
-      setMessageType("success");
-      setMessage("Founder and Restaurant profile updated successfully!");
-    } catch (err: any) {
-      console.error("Error saving partner profile:", err);
-      setMessageType("error");
-      setMessage("Failed to save changes.");
-    } finally {
-      setSaving(false);
-    }
+  function handleCopyLink() {
+    navigator.clipboard.writeText("graffresto.uz/afsona-restaurant");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
-  async function handleSendResetPassword() {
-    setResetSending(true);
-    setMessage("");
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!userId) return;
 
+    setIsSaving(true);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-      await sendPasswordResetEmail(auth, email, { url: `${origin}/login` });
-      setMessageType("success");
-      setMessage(`Password reset email sent to ${email}! Please check your inbox.`);
-    } catch (err: any) {
-      console.error("Error sending reset link:", err);
-      setMessageType("error");
-      setMessage("Failed to send reset link.");
+      await updateDoc(doc(db, "profiles", userId), {
+        full_name: `${firstName} ${lastName}`,
+        phone: phone,
+        city: city,
+        district: district,
+        updated_at: new Date().toISOString(),
+      });
+      alert("Profile updated successfully!");
+    } catch (err) {
+      console.error("Error saving profile:", err);
     } finally {
-      setResetSending(false);
+      setIsSaving(false);
     }
   }
 
@@ -188,235 +126,428 @@ export default function PartnerProfilePage() {
     router.push("/login");
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
-        <div className="flex items-center gap-3 rounded-3xl bg-gray-800 border border-white/10 p-8 shadow-xl">
+      <main className="flex min-h-screen items-center justify-center bg-[#070e17] text-white">
+        <div className="flex items-center gap-3 rounded-3xl bg-[#0f172a] border border-white/10 p-8 shadow-2xl">
           <Loader2 className="animate-spin text-orange-500" size={24} />
-          <span className="font-bold text-gray-300">Loading Founder Profile...</span>
+          <span className="font-bold text-gray-300">Loading Profile...</span>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#09111e] pb-20 text-white">
-      {/* Top Header */}
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#09111e]/95 backdrop-blur-md shadow-sm">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+    <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
+      {/* Sidebar matching Profile Mockup */}
+      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 px-2 py-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
+              <Utensils size={20} />
+            </div>
+            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
+          </div>
+
+          <nav className="space-y-1 text-sm font-semibold">
+            <Link
+              href="/partner"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <LayoutDashboard size={18} />
+              <span>Dashboard</span>
+            </Link>
+
+            <Link
+              href="/partner/bookings"
+              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <div className="flex items-center gap-3">
+                <Calendar size={18} />
+                <span>Bookings</span>
+              </div>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
+                3
+              </span>
+            </Link>
+
+            <Link
+              href="/partner/floor-plan"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Table size={18} />
+              <span>Floor Map</span>
+            </Link>
+
+            <Link
+              href="/partner/menu"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <UtensilsCrossed size={18} />
+              <span>Menu</span>
+            </Link>
+
+            <Link
+              href="/partner/analytics"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <BarChart3 size={18} />
+              <span>Analytics</span>
+            </Link>
+
+            <Link
+              href="/partner/crm"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Users size={18} />
+              <span>CRM</span>
+            </Link>
+
+            <Link
+              href="/partner/promotions"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Gift size={18} />
+              <span>Promotions</span>
+            </Link>
+          </nav>
+
+          <div className="pt-4 border-t border-slate-800 space-y-1">
+            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+              ERP Modules
+            </p>
+            <Link
+              href="/partner/kitchen"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <ChefHat size={16} /> Kitchen
+            </Link>
+            <Link
+              href="/partner/inventory"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <Boxes size={16} /> Inventory
+            </Link>
+            <Link
+              href="/partner/finance"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <DollarSign size={16} /> Finance
+            </Link>
+            <Link
+              href="/partner/staff"
+              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+            >
+              <User size={16} /> Staff
+            </Link>
+          </div>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t border-slate-800">
           <Link
-            href="/partner"
-            className="flex items-center gap-2 text-sm font-bold text-gray-400 hover:text-white transition"
+            href="/partner/settings"
+            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
           >
-            <ArrowLeft size={18} /> Back to Partner Dashboard
+            <Settings size={16} /> Settings
           </Link>
 
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 rounded-xl bg-red-500/10 border border-red-500/20 px-3.5 py-2 text-xs font-bold text-red-400 hover:bg-red-500/20 transition"
-            >
-              <LogOut size={14} /> Sign Out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <div className="mx-auto max-w-4xl px-6 py-8 space-y-8">
-        {/* Founder Hero Card */}
-        <div className="rounded-[2.5rem] border border-white/10 bg-gradient-to-r from-gray-900 via-[#0b182b] to-orange-950/60 p-8 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-5">
-            <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-orange-500 text-white font-black text-3xl shadow-lg shadow-orange-500/30 border border-orange-400/30">
-              {fullName.charAt(0) || "F"}
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-black">{fullName}</h1>
-                <span className="rounded-full bg-orange-500/20 px-3 py-0.5 text-xs font-black text-orange-400 border border-orange-500/30">
-                  RESTAURANT OWNER / FOUNDER
-                </span>
-              </div>
-              <p className="text-sm font-medium text-gray-400">{email}</p>
-              <p className="text-xs font-mono text-gray-500">UID: {uid.slice(0, 12)}...</p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white/5 p-4 backdrop-blur-md border border-white/10 flex items-center gap-3">
-            <ShieldCheck size={28} className="text-emerald-400" />
-            <div>
-              <p className="text-xs font-bold uppercase text-gray-400">Partner Status</p>
-              <p className="text-sm font-black text-emerald-400 capitalize">{partnerStatus}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Message Banner */}
-        {message && (
-          <div
-            className={`rounded-2xl p-4 text-xs font-bold flex items-center gap-2 ${
-              messageType === "success"
-                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                : "bg-red-500/20 text-red-400 border border-red-500/30"
-            }`}
+          <Link
+            href="/partner/profile"
+            className="flex items-center gap-3 rounded-2xl bg-orange-500 p-3 text-white font-bold shadow-md shadow-orange-500/20"
           >
-            <CheckCircle2 size={16} />
-            <span>{message}</span>
-          </div>
-        )}
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-400 text-white font-bold border border-orange-300">
+              <Store size={18} />
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-xs font-bold text-white truncate">Afsona Restaurant</p>
+              <p className="text-[10px] text-orange-100">Restaurant Owner</p>
+            </div>
+          </Link>
 
-        {/* Edit Founder & Restaurant Form */}
-        <div className="rounded-[2.5rem] border border-white/10 bg-gray-900/80 p-8 shadow-xl space-y-6">
-          <div className="flex items-center gap-3 pb-4 border-b border-white/10">
-            <Store className="text-orange-400" size={24} />
-            <div>
-              <h2 className="text-xl font-black text-white">Founder & Restaurant Settings</h2>
-              <p className="text-xs font-medium text-gray-400">
-                Manage founder contact information and legal restaurant credentials.
-              </p>
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
+          >
+            <LogOut size={16} /> Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Workspace Area matching Profile Mockup */}
+      <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Top Header */}
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur-md px-8 py-5">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900">My Profile</h1>
+            <p className="text-xs font-medium text-slate-500">Manage your personal details and owner profile</p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <LanguageSwitcher />
+
+            <div className="relative">
+              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                <Bell size={18} />
+              </button>
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
+                3
+              </span>
+            </div>
+
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20">
+              A
+            </div>
+          </div>
+        </header>
+
+        {/* Content Container */}
+        <div className="p-8 space-y-8">
+          {/* Cover & Floating Card Header matching Profile Mockup B */}
+          <div className="rounded-[2.5rem] border border-slate-200 bg-white overflow-hidden shadow-sm">
+            {/* Cover Banner */}
+            <div className="relative h-48 w-full bg-gradient-to-r from-slate-900 to-orange-950">
+              <img
+                src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200"
+                alt="Cover"
+                className="h-full w-full object-cover opacity-60"
+              />
+              <button className="absolute top-4 right-4 inline-flex items-center gap-2 rounded-2xl bg-black/60 backdrop-blur-md px-4 py-2 text-xs font-bold text-white hover:bg-black/80 transition">
+                <Camera size={14} /> Change Cover
+              </button>
+            </div>
+
+            {/* Floating Profile Info Card */}
+            <div className="p-8 relative -mt-14 flex flex-col md:flex-row md:items-end justify-between gap-6">
+              <div className="flex items-end gap-5">
+                <div className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-orange-500 text-white font-black text-4xl shadow-2xl ring-4 ring-white">
+                  A
+                  <button className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-white border-2 border-white">
+                    <Camera size={12} />
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-2xl font-black text-slate-900">{firstName} {lastName}</h2>
+                    <span className="rounded-full bg-orange-100 px-3 py-0.5 text-xs font-black text-orange-600">
+                      Restaurant Owner
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-500">Afsona Restaurant • Tashkent, Uzbekistan</p>
+                </div>
+              </div>
+
+              {/* Stats & Short URL */}
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-3 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-2.5 text-xs font-bold">
+                  <span>248 Bookings</span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-amber-500 flex items-center gap-1">4.8 <Star size={12} fill="currentColor" /></span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-slate-500">8 mo partner</span>
+                </div>
+
+                <button
+                  onClick={handleCopyLink}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-sm"
+                >
+                  <Copy size={14} /> {copied ? "Copied!" : "graffresto.uz/afsona-restaurant"}
+                </button>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex items-center gap-6 px-8 border-t border-slate-100 text-xs font-black">
+              <button
+                onClick={() => setActiveTab("account")}
+                className={`py-4 border-b-2 transition ${
+                  activeTab === "account"
+                    ? "border-orange-500 text-orange-600"
+                    : "border-transparent text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                Account Settings
+              </button>
+              <button
+                onClick={() => setActiveTab("security")}
+                className={`py-4 border-b-2 transition ${
+                  activeTab === "security"
+                    ? "border-orange-500 text-orange-600"
+                    : "border-transparent text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                Security & 2FA
+              </button>
+              <button
+                onClick={() => setActiveTab("activity")}
+                className={`py-4 border-b-2 transition ${
+                  activeTab === "activity"
+                    ? "border-orange-500 text-orange-600"
+                    : "border-transparent text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                Recent Activity
+              </button>
             </div>
           </div>
 
-          <form onSubmit={handleSavePartnerProfile} className="space-y-6">
-            {/* Founder Personal Info */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wider">
-                Founder Personal Info
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+          {/* Form / Content Section */}
+          {activeTab === "account" && (
+            <form onSubmit={handleSaveProfile} className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm space-y-6">
+              <h3 className="text-base font-black text-slate-900">Personal Information</h3>
+
+              <div className="grid gap-6 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    Founder Full Name
-                  </label>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">First Name</label>
                   <input
                     type="text"
                     required
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none focus:border-orange-500"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    Founder Email Address
-                  </label>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Email Address</label>
                   <input
                     type="email"
-                    disabled
+                    required
                     value={email}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-gray-500 cursor-not-allowed"
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    Owner Direct Phone
-                  </label>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Phone Number</label>
                   <input
                     type="text"
+                    required
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+998 90 123 45 67"
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none focus:border-orange-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Restaurant Legal Info */}
-            <div className="space-y-4 pt-4 border-t border-white/10">
-              <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wider">
-                Restaurant Legal & Contact Details
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    Restaurant Brand Name
-                  </label>
-                  <input
-                    type="text"
-                    value={restaurantName}
-                    onChange={(e) => setRestaurantName(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none focus:border-orange-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    STIR / ИНН Legal Code
-                  </label>
-                  <input
-                    type="text"
-                    value={stir}
-                    onChange={(e) => setStir(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-orange-400 font-mono outline-none focus:border-orange-500"
-                  />
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">City</label>
+                  <select
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                  >
+                    <option value="Tashkent">Tashkent</option>
+                    <option value="Samarkand">Samarkand</option>
+                    <option value="Bukhara">Bukhara</option>
+                  </select>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    Cuisine Type
-                  </label>
-                  <input
-                    type="text"
-                    value={cuisineType}
-                    onChange={(e) => setCuisineType(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                    Restaurant Phone
-                  </label>
-                  <input
-                    type="text"
-                    value={restaurantPhone}
-                    onChange={(e) => setRestaurantPhone(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none focus:border-orange-500"
-                  />
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">District</label>
+                  <select
+                    value={district}
+                    onChange={(e) => setDistrict(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none focus:border-orange-500"
+                  >
+                    <option value="Chilonzor">Chilonzor</option>
+                    <option value="Yunusabad">Yunusabad</option>
+                    <option value="Mirzo Ulugbek">Mirzo Ulugbek</option>
+                  </select>
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-xs font-bold uppercase text-gray-400">
-                  Full Street Address & City
-                </label>
-                <input
-                  type="text"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Navoi Avenue 24, Tashkent"
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none focus:border-orange-500"
-                />
+              <div className="pt-4 border-t border-slate-100 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="rounded-2xl bg-orange-500 px-8 py-3.5 text-xs font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50"
+                >
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === "security" && (
+            <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm space-y-6">
+              <h3 className="text-base font-black text-slate-900">Security & Authentication</h3>
+
+              <div className="space-y-4 divide-y divide-slate-100">
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <p className="text-xs font-black text-slate-900">Password</p>
+                    <p className="text-[11px] text-slate-500">Last changed 2 months ago</p>
+                  </div>
+                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Change Password
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between pt-4">
+                  <div>
+                    <p className="text-xs font-black text-slate-900">Two-Factor Authentication (2FA)</p>
+                    <p className="text-[11px] text-slate-500">Add an extra layer of security to your account</p>
+                  </div>
+                  <button
+                    onClick={() => setTwoFactor(!twoFactor)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      twoFactor ? "bg-emerald-500" : "bg-slate-300"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        twoFactor ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between pt-4">
+                  <div>
+                    <p className="text-xs font-black text-slate-900">Active Sessions</p>
+                    <p className="text-[11px] text-slate-500">2 active devices logged in</p>
+                  </div>
+                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Manage Sessions
+                  </button>
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="flex items-center justify-between pt-4 border-t border-white/10">
-              <button
-                type="button"
-                onClick={handleSendResetPassword}
-                disabled={resetSending}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-gray-300 hover:bg-white/10 disabled:opacity-50"
-              >
-                {resetSending ? <Loader2 className="animate-spin" size={14} /> : <KeyRound size={14} />}
-                Send Reset Password Link
-              </button>
+          {activeTab === "activity" && (
+            <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm space-y-6">
+              <h3 className="text-base font-black text-slate-900">Recent Account Activity</h3>
 
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-sm font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50"
-              >
-                {saving && <Loader2 className="animate-spin" size={16} />}
-                {saving ? "Saving..." : "Save All Profile Settings"}
-              </button>
+              <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                {[
+                  { title: "Logged in from Chrome, Tashkent", time: "2 hours ago" },
+                  { title: "Updated restaurant business hours", time: "Yesterday" },
+                  { title: "Approved 3 new bookings", time: "2 days ago" },
+                  { title: "Changed profile cover photo", time: "1 week ago" },
+                ].map((act, i) => (
+                  <div key={i} className="relative flex items-center justify-between text-xs font-bold">
+                    <div className="absolute -left-6 top-1.5 h-3 w-3 rounded-full bg-orange-500 ring-4 ring-orange-100" />
+                    <span className="text-slate-900">{act.title}</span>
+                    <span className="text-slate-400 font-normal">{act.time}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </form>
+          )}
         </div>
-      </div>
+      </section>
     </main>
   );
 }
