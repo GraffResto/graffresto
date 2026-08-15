@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { KeyRound, Loader2, Lock, ShieldCheck, Utensils } from "lucide-react";
+import { Loader2, Lock, ShieldCheck, Utensils } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import FirebaseConfigNotice from "@/components/FirebaseConfigNotice";
 import {
   auth,
   signInWithEmailAndPassword,
+  signOut,
   getUserProfile,
   formatAuthError,
 } from "@/lib/firebase";
@@ -15,7 +17,6 @@ export default function AdminLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [masterKey, setMasterKey] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -31,22 +32,15 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
-      // 1. Master Key Bypass for Platform Owner
-      if (masterKey === "dineflow2026" || masterKey === "admin123") {
-        const userCred = await signInWithEmailAndPassword(auth, email, password);
-        router.push("/admin");
-        router.refresh();
-        return;
-      }
-
-      // 2. Standard Admin Login & Role Check
       const userCred = await signInWithEmailAndPassword(auth, email, password);
       const profile = await getUserProfile(userCred.user.uid);
 
-      if (profile?.role === "admin" || profile?.role === ("platform_staff" as any)) {
+      if (profile?.role === "admin") {
         router.push("/admin");
         router.refresh();
       } else {
+        // Never leave a non-admin signed in on the admin entry point
+        await signOut(auth);
         setMessage("Access denied. This account does not have Platform Admin privileges.");
       }
     } catch (err: any) {
@@ -108,6 +102,8 @@ export default function AdminLoginPage() {
           </div>
 
           <form onSubmit={handleAdminLogin} className="space-y-5">
+            <FirebaseConfigNotice dark />
+
             <div>
               <label className="mb-2 block text-xs font-bold text-gray-400 uppercase tracking-wider">
                 Admin Email Address
@@ -134,23 +130,6 @@ export default function AdminLoginPage() {
                 placeholder="••••••••••••"
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white font-bold placeholder-gray-500 outline-none focus:border-orange-500 focus:bg-white/10 transition"
               />
-            </div>
-
-            <div>
-              <label className="mb-2 flex items-center justify-between text-xs font-bold text-gray-400 uppercase tracking-wider">
-                <span>Master Passkey (Optional)</span>
-                <span className="text-[10px] text-orange-400">Owner Access</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="password"
-                  value={masterKey}
-                  onChange={(e) => setMasterKey(e.target.value)}
-                  placeholder="Master key for instant bypass"
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 pl-4 pr-10 py-3.5 text-white font-bold placeholder-gray-500 outline-none focus:border-orange-500 focus:bg-white/10 transition"
-                />
-                <KeyRound className="absolute right-3 top-3.5 text-gray-500" size={18} />
-              </div>
             </div>
 
             {message && (

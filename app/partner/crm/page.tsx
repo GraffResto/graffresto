@@ -31,10 +31,12 @@ import {
   UtensilsCrossed,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
+import PartnerHeaderActions from "@/components/PartnerHeaderActions";
 import {
   auth,
   db,
@@ -67,81 +69,84 @@ export default function CRMCustomerDirectoryPage() {
   const { language } = useLanguage();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [restaurantName, setRestaurantName] = useState("");
+
+  // Held in a ref because the async auth callback cannot return a cleanup
+  const customersListenerRef = useRef<(() => void) | null>(null);
 
   const [activeTier, setActiveTier] = useState<"All" | "Platinum" | "Gold" | "Silver" | "Bronze">("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>("c1");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<Record<string, string>>({});
 
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
 
   useEffect(() => {
+    const detachCustomers = () => {
+      customersListenerRef.current?.();
+      customersListenerRef.current = null;
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachCustomers();
+
       if (!user) {
         router.push("/login");
         return;
       }
 
       try {
-        const unsub = onSnapshot(collection(db, "customers_crm"), (snap) => {
-          const list: CustomerRecord[] = snap.docs.map((d) => ({
-            id: d.id,
-            full_name: d.data().full_name || "Guest",
-            phone: d.data().phone || "+998 90 123 45 67",
-            email: d.data().email || "",
-            tier: d.data().tier || "Platinum",
-            total_visits: d.data().total_visits || 24,
-            total_spent: d.data().total_spent || 2840,
-            last_visit: d.data().last_visit || "3 days ago",
-            partner_notes: d.data().partner_notes || "Prefers window seat, allergic to nuts, birthday in March",
-            booking_history: d.data().booking_history || [
-              { date: "May 18, 2025", table: "Table 12", guests: 4, status: "Completed" },
-              { date: "May 10, 2025", table: "Table 7", guests: 2, status: "Completed" },
-              { date: "Apr 28, 2025", table: "Table 3", guests: 6, status: "Completed" },
-              { date: "Apr 12, 2025", table: "Table 9", guests: 3, status: "No Show" },
-            ],
-          }));
+        const rSnap = await getDocs(
+          query(collection(db, "restaurants"), where("owner_id", "==", user.uid))
+        );
 
-          if (list.length > 0) {
-            setCustomers(list);
-          } else {
-            // Mock dataset matching CRM Mockup
-            setCustomers([
-              {
-                id: "c1",
-                full_name: "Karimov Jasur",
-                phone: "+998 90 123 45 67",
-                tier: "Platinum",
-                total_visits: 24,
-                total_spent: 2840,
-                last_visit: "3 days ago",
-                partner_notes: "Prefers window seat, allergic to nuts, birthday in March",
-                booking_history: [
-                  { date: "May 18, 2025", table: "Table 12", guests: 4, status: "Completed" },
-                  { date: "May 10, 2025", table: "Table 7", guests: 2, status: "Completed" },
-                  { date: "Apr 28, 2025", table: "Table 3", guests: 6, status: "Completed" },
-                  { date: "Apr 12, 2025", table: "Table 9", guests: 3, status: "No Show" },
-                ],
-              },
-              { id: "c2", full_name: "Aliyeva Malika", phone: "+998 91 234 56 78", tier: "Gold", total_visits: 14, total_spent: 1120, last_visit: "1 week ago" },
-              { id: "c3", full_name: "Raximov Bobur", phone: "+998 93 345 67 89", tier: "Gold", total_visits: 11, total_spent: 980, last_visit: "5 days ago" },
-              { id: "c4", full_name: "Toshmatov Sarvar", phone: "+998 94 456 78 90", tier: "Silver", total_visits: 6, total_spent: 410, last_visit: "2 weeks ago" },
-              { id: "c5", full_name: "Yusupova Dilnoza", phone: "+998 95 567 89 01", tier: "Platinum", total_visits: 31, total_spent: 3650, last_visit: "Yesterday" },
-              { id: "c6", full_name: "Nazarov Eldor", phone: "+998 97 678 90 12", tier: "Bronze", total_visits: 2, total_spent: 95, last_visit: "1 month ago" },
-            ]);
-          }
+        if (rSnap.empty) {
+          setCustomers([]);
           setIsLoading(false);
-        });
+          return;
+        }
 
-        return () => unsub();
+        const rDoc = rSnap.docs[0];
+        setRestaurantName(rDoc.data().name || "Your restaurant");
+
+        // Guest records belonging to this restaurant only
+        customersListenerRef.current = onSnapshot(
+          query(collection(db, "customers_crm"), where("restaurant_id", "==", rDoc.id)),
+          (snap) => {
+            const list: CustomerRecord[] = snap.docs.map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                full_name: data.full_name || "Guest",
+                phone: data.phone || "",
+                email: data.email || "",
+                tier: data.tier || "Bronze",
+                total_visits: data.total_visits ?? 0,
+                total_spent: data.total_spent ?? 0,
+                last_visit: data.last_visit || "",
+                partner_notes: data.partner_notes || "",
+                booking_history: data.booking_history || [],
+              };
+            });
+
+            setCustomers(list);
+            setIsLoading(false);
+          },
+          (err) => {
+            console.error("CRM listener error:", err);
+            setIsLoading(false);
+          }
+        );
       } catch (err) {
         console.error("CRM load error:", err);
         setIsLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      detachCustomers();
+    };
   }, [router]);
 
   async function handleSaveNote(id: string) {
@@ -170,6 +175,15 @@ export default function CRMCustomerDirectoryPage() {
     return matchesTier && matchesSearch;
   });
 
+  // Average lifetime spend across guests who have actually spent something
+  const spenders = customers.filter((c) => c.total_spent > 0);
+  const avgSpend =
+    spenders.length > 0
+      ? `${Math.round(
+          spenders.reduce((sum, c) => sum + c.total_spent, 0) / spenders.length
+        ).toLocaleString()} UZS`
+      : "—";
+
   if (isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#070e17] text-white">
@@ -184,132 +198,7 @@ export default function CRMCustomerDirectoryPage() {
   return (
     <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
       {/* Sidebar matching CRM Mockup */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <LayoutDashboard size={18} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-3 text-white font-bold shadow-md shadow-orange-500/20"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="crm" />
 
       {/* Main Workspace Area matching CRM Mockup */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -317,7 +206,9 @@ export default function CRMCustomerDirectoryPage() {
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur-md px-8 py-5">
           <div>
             <h1 className="text-2xl font-black text-slate-900">Customers</h1>
-            <p className="text-xs font-medium text-slate-500">312 customers • managing relationships and loyalty</p>
+            <p className="text-xs font-medium text-slate-500">
+              {customers.length} customer{customers.length === 1 ? "" : "s"} • managing relationships and loyalty
+            </p>
           </div>
 
           <div className="flex items-center gap-4">
@@ -333,22 +224,9 @@ export default function CRMCustomerDirectoryPage() {
             </div>
 
             <LanguageSwitcher />
+            <PartnerHeaderActions />
 
-            <div className="relative">
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                <Bell size={18} />
-              </button>
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                3
-              </span>
-            </div>
-
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            
           </div>
         </header>
 
@@ -360,7 +238,7 @@ export default function CRMCustomerDirectoryPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Customers</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">312</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">{customers.length}</p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
                 <Users size={24} />
@@ -371,7 +249,9 @@ export default function CRMCustomerDirectoryPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">VIP / Platinum</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">18</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">
+                  {customers.filter((c) => c.tier === "Platinum").length}
+                </p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600">
                 <Crown size={24} />
@@ -381,8 +261,10 @@ export default function CRMCustomerDirectoryPage() {
             {/* Card 3: New this month */}
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">New this month</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">24</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Gold tier</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">
+                  {customers.filter((c) => c.tier === "Gold").length}
+                </p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
                 <UserPlus size={24} />
@@ -393,7 +275,7 @@ export default function CRMCustomerDirectoryPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Avg. Spend</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">$42.50</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">{avgSpend}</p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-600">
                 <TrendingUp size={24} />

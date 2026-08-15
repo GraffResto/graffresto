@@ -40,6 +40,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
+import PartnerHeaderActions from "@/components/PartnerHeaderActions";
 import {
   auth,
   db,
@@ -65,14 +67,15 @@ export default function PartnerSettingsPage() {
     "general" | "profile" | "hours" | "team" | "notifications" | "billing" | "integrations" | "danger"
   >("general");
 
-  // Form State matching General Settings Mockup
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
-  const [cuisineType, setCuisineType] = useState("Uzbek, European");
-  const [phoneNumber, setPhoneNumber] = useState("+998 90 123 45 67");
-  const [emailAddress, setEmailAddress] = useState("info@afsonarestaurant.uz");
-  const [address, setAddress] = useState("123 Amir Temur Street, Chilonzor District");
-  const [city, setCity] = useState("Tashkent");
-  const [district, setDistrict] = useState("Chilonzor");
+  // Form State — empty until the restaurant is loaded, so an unset field is
+  // never silently saved back as a placeholder value.
+  const [restaurantName, setRestaurantName] = useState("");
+  const [cuisineType, setCuisineType] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [emailAddress, setEmailAddress] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [district, setDistrict] = useState("");
 
   // Regional
   const [currency, setCurrency] = useState("UZS");
@@ -80,11 +83,13 @@ export default function PartnerSettingsPage() {
 
   // Booking Preferences
   const [autoApprove, setAutoApprove] = useState(false);
-  const [requirePrepayment, setRequirePrepayment] = useState(true);
+  const [requirePrepayment, setRequirePrepayment] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState("90");
   const [cancellationWindow, setCancellationWindow] = useState("2");
 
   const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -101,13 +106,23 @@ export default function PartnerSettingsPage() {
           const rDoc = rSnap.docs[0];
           setRestaurantId(rDoc.id);
           const d = rDoc.data();
-          setRestaurantName(d.name || "Afsona Restaurant");
-          setCuisineType(Array.isArray(d.cuisine_type) ? d.cuisine_type.join(", ") : d.cuisine_type || "Uzbek, European");
-          setPhoneNumber(d.phone || "+998 90 123 45 67");
-          setEmailAddress(d.email || "info@afsonarestaurant.uz");
-          setAddress(d.address || "123 Amir Temur Street, Chilonzor District");
-          setCity(d.city || "Tashkent");
-          setDistrict(d.district || "Chilonzor");
+          setRestaurantName(d.name || "");
+          setCuisineType(
+            Array.isArray(d.cuisine_type) ? d.cuisine_type.join(", ") : d.cuisine_type || ""
+          );
+          setPhoneNumber(d.phone || "");
+          setEmailAddress(d.email || "");
+          setAddress(d.address || "");
+          setCity(d.city || "");
+          setDistrict(d.district || "");
+
+          // Regional and booking preferences round-trip too
+          setCurrency(d.currency || "UZS");
+          setTimezone(d.timezone || "Asia/Tashkent");
+          setAutoApprove(d.auto_approve === true);
+          setRequirePrepayment(d.require_prepayment === true);
+          setDefaultDuration(String(d.default_duration_minutes ?? 90));
+          setCancellationWindow(String(d.cancellation_window_hours ?? 2));
         }
       } catch (err) {
         console.error("Settings load error:", err);
@@ -121,23 +136,44 @@ export default function PartnerSettingsPage() {
 
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
-    if (!restaurantId) return;
+
+    setSaveMessage("");
+    setSaveError(false);
+
+    if (!restaurantId) {
+      setSaveError(true);
+      setSaveMessage("No restaurant is linked to this account yet.");
+      return;
+    }
 
     setIsSaving(true);
     try {
       await updateDoc(doc(db, "restaurants", restaurantId), {
-        name: restaurantName,
-        cuisine_type: cuisineType.split(",").map((s) => s.trim()),
-        phone: phoneNumber,
-        email: emailAddress,
-        address: address,
-        city: city,
-        district: district,
+        name: restaurantName.trim(),
+        cuisine_type: cuisineType
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        phone: phoneNumber.trim(),
+        email: emailAddress.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        district: district.trim(),
+        currency,
+        timezone,
+        // These were previously editable but never persisted
+        auto_approve: autoApprove,
+        require_prepayment: requirePrepayment,
+        default_duration_minutes: Number(defaultDuration) || 90,
+        cancellation_window_hours: Number(cancellationWindow) || 0,
         updated_at: new Date().toISOString(),
       });
-      alert("Settings saved successfully!");
+
+      setSaveMessage("Settings saved.");
     } catch (err) {
       console.error("Error saving settings:", err);
+      setSaveError(true);
+      setSaveMessage("Could not save your settings. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -162,138 +198,7 @@ export default function PartnerSettingsPage() {
   return (
     <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
       {/* Sidebar matching Settings Mockup */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <LayoutDashboard size={18} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-            <Link
-              href="/partner/staff"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <User size={16} /> Staff
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-2.5 text-xs font-bold text-white shadow-md shadow-orange-500/20"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="settings" />
 
       {/* Main Workspace Area matching Settings Mockup */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -306,22 +211,9 @@ export default function PartnerSettingsPage() {
 
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
+            <PartnerHeaderActions />
 
-            <div className="relative">
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                <Bell size={18} />
-              </button>
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                3
-              </span>
-            </div>
-
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            
           </div>
         </header>
 
@@ -471,7 +363,7 @@ export default function PartnerSettingsPage() {
                       <select className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-900 outline-none">
                         <option value="en">English</option>
                         <option value="ru">Русский</option>
-                        <option value="uz">O'zbekcha</option>
+                        <option value="uz">O&apos;zbekcha</option>
                       </select>
                     </div>
 
@@ -566,9 +458,22 @@ export default function PartnerSettingsPage() {
                 </div>
 
                 {/* Bottom Footer Buttons matching General Settings Mockup */}
-                <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100">
+                <div className="flex flex-wrap items-center justify-end gap-3 pt-6 border-t border-slate-100">
+                  {saveMessage && (
+                    <p
+                      className={`mr-auto rounded-2xl px-4 py-2.5 text-xs font-bold ${
+                        saveError
+                          ? "bg-red-50 text-red-700 border border-red-200"
+                          : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                      }`}
+                    >
+                      {saveMessage}
+                    </p>
+                  )}
+
                   <button
                     type="button"
+                    onClick={() => router.refresh()}
                     className="rounded-2xl border border-slate-200 px-6 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50"
                   >
                     Cancel

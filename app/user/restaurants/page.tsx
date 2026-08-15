@@ -13,7 +13,7 @@ type RestaurantDisplay = {
   name: string;
   type: string;
   location: string;
-  rating: number;
+  rating: number | null;
   price: string;
   status: string;
   image: string;
@@ -40,7 +40,7 @@ export default function UserRestaurantsPage() {
             name: d.name || "Restaurant",
             type: d.cuisine_type || "Restaurant",
             location: d.city || "Tashkent",
-            rating: d.rating || 4.8,
+            rating: typeof d.rating === "number" ? d.rating : null,
             price: d.price || "$$",
             status: d.is_open ? "Open" : "Closed",
             image:

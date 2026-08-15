@@ -30,6 +30,8 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
+// The committed fallbacks belong to an old project whose API key is no longer
+// valid, so real values must come from .env.local (see .env.example).
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyAzUvKqGcwnvCv0_41SbPjjY51mLAXrVdU",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "restuarant-14839.firebaseapp.com",
@@ -38,6 +40,17 @@ const firebaseConfig = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "515577537730",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:515577537730:web:f1eb717ac14e5c4b1e075b",
 };
+
+export const isUsingFallbackFirebaseConfig = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
+if (isUsingFallbackFirebaseConfig && typeof window !== "undefined") {
+  console.warn(
+    "[DineFlow] NEXT_PUBLIC_FIREBASE_API_KEY is not set, so the built-in fallback " +
+      "config is being used. That project's key is no longer valid, so sign-in and " +
+      "registration will fail. Copy .env.example to .env.local and fill in your own " +
+      "Firebase web config."
+  );
+}
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -90,7 +103,39 @@ export function formatAuthError(error: any, fallbackMessage: string = "Operation
   if (code === "auth/popup-closed-by-user") {
     return "Google sign-in popup was closed before completion.";
   }
-  return error?.message?.replace(/^Firebase:\s*/, "") || fallbackMessage;
+  if (code === "auth/too-many-requests") {
+    return "Too many attempts. Please wait a few minutes and try again.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Network error. Check your connection and try again.";
+  }
+  if (code === "auth/requires-recent-login") {
+    return "For security, please sign in again before changing this.";
+  }
+  // Configuration problems, not user mistakes — say so plainly instead of
+  // letting them read as "wrong password".
+  if (typeof code === "string" && code.startsWith("auth/api-key-not-valid")) {
+    return "This app is not connected to Firebase yet. Add your Firebase web config to .env.local (see .env.example).";
+  }
+  if (code === "auth/configuration-not-found" || code === "auth/invalid-api-key") {
+    return "Firebase is misconfigured for this site. Check the API key and Authorized domains in the Firebase console.";
+  }
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not in the Firebase Authentication authorized domains list.";
+  }
+  if (code === "auth/popup-blocked") {
+    return "Your browser blocked the Google sign-in popup. Allow popups for this site and try again.";
+  }
+  if (code === "auth/operation-not-allowed") {
+    return "This sign-in method is disabled. Enable it in Firebase Authentication settings.";
+  }
+
+  // Strip Firebase's prefix and the internal error code it appends in brackets
+  const message = error?.message
+    ?.replace(/^Firebase:\s*/, "")
+    ?.replace(/\s*\(auth\/[^)]+\)\.?$/, "");
+
+  return message || fallbackMessage;
 }
 
 export type UserRole = "customer" | "partner" | "admin";

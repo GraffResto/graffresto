@@ -1,59 +1,69 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Loader2, MailCheck, RefreshCw, ShieldCheck, Utensils } from "lucide-react";
-import { Suspense, useEffect, useState } from "react";
+import { ArrowRight, CheckCircle2, Loader2, MailCheck, RefreshCw, Utensils } from "lucide-react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
-import {
-  auth,
-  db,
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  updateDoc,
-  doc,
-  sendEmailVerification,
-} from "@/lib/firebase";
+import { auth, sendEmailVerification, formatAuthError } from "@/lib/firebase";
 
 const checkEmailText = {
   en: {
     title: "Verify Your Email Address",
-    subtitle: "We sent a 6-digit verification code and link to your email inbox.",
-    enterCode: "Enter 6-Digit Verification Code",
-    verifyButton: "Verify & Proceed",
-    resendButton: "Resend Code & Link",
+    subtitle: "We sent a confirmation link to your email inbox. Open it to activate your account.",
+    instructions:
+      "Click the link in the email, then come back here and continue. If you cannot find it, check your spam folder or send the link again.",
+    continueButton: "I verified — continue",
+    checking: "Checking...",
+    resendButton: "Resend link",
     successMsg: "Email verified successfully! Redirecting...",
-    invalidCodeMsg: "Invalid code. Please check your email or enter code below.",
+    notVerifiedMsg: "This email is not confirmed yet. Open the link we sent, then try again.",
+    resentMsg: "A fresh verification link is on its way to your inbox.",
+    noSessionMsg: "Your session expired. Please log in again to resend the verification link.",
     login: "Back to Login",
     home: "Back to Home",
   },
   uz: {
     title: "Emailingizni tasdiqlang",
-    subtitle: "Email inbox’ingizga 6 xonali tasdiqlash kodi va link yubordik.",
-    enterCode: "6 xonali tasdiqlash kodini kiriting",
-    verifyButton: "Tasdiqlash va Davom etish",
-    resendButton: "Kodni qayta yuborish",
-    successMsg: "Email muvaffaqiyatli tasdiqlandi! Yo‘naltirilmoqda...",
-    invalidCodeMsg: "Noto‘g‘ri kod. Iltimos, emailingizni tekshiring.",
-    login: "Login sahifasiga o‘tish",
+    subtitle: "Email inbox'ingizga tasdiqlash havolasini yubordik. Akkauntni faollashtirish uchun uni oching.",
+    instructions:
+      "Emaildagi havolani bosing, so'ng shu sahifaga qaytib davom eting. Xat ko'rinmasa, spam papkasini tekshiring yoki havolani qayta yuboring.",
+    continueButton: "Tasdiqladim — davom etish",
+    checking: "Tekshirilmoqda...",
+    resendButton: "Havolani qayta yuborish",
+    successMsg: "Email muvaffaqiyatli tasdiqlandi! Yo'naltirilmoqda...",
+    notVerifiedMsg: "Email hali tasdiqlanmagan. Yuborilgan havolani oching va qayta urinib ko'ring.",
+    resentMsg: "Yangi tasdiqlash havolasi emailingizga yuborildi.",
+    noSessionMsg: "Sessiya tugadi. Havolani qayta yuborish uchun qaytadan kiring.",
+    login: "Login sahifasiga o'tish",
     home: "Bosh sahifaga qaytish",
   },
   ru: {
     title: "Подтвердите ваш Email",
-    subtitle: "Мы отправили 6-значный код и ссылку на ваш email.",
-    enterCode: "Введите 6-значный код подтверждения",
-    verifyButton: "Подтвердить и продолжить",
-    resendButton: "Отправить код повторно",
+    subtitle: "Мы отправили ссылку подтверждения на вашу почту. Откройте её, чтобы активировать аккаунт.",
+    instructions:
+      "Перейдите по ссылке из письма, затем вернитесь сюда и продолжите. Если письма нет, проверьте папку спам или отправьте ссылку повторно.",
+    continueButton: "Я подтвердил — продолжить",
+    checking: "Проверка...",
+    resendButton: "Отправить ссылку повторно",
     successMsg: "Email успешно подтвержден! Перенаправление...",
-    invalidCodeMsg: "Неверный код. Проверьте ваш email.",
+    notVerifiedMsg: "Email ещё не подтверждён. Откройте отправленную ссылку и попробуйте снова.",
+    resentMsg: "Новая ссылка подтверждения отправлена на вашу почту.",
+    noSessionMsg: "Сессия истекла. Войдите снова, чтобы отправить ссылку повторно.",
     login: "Вернуться к входу",
     home: "Назад на главную",
   },
 };
+
+// Only in-app destinations are accepted, so the redirect cannot be pointed at
+// an external site through the query string.
+function safeNextPath(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/user";
+  }
+  return value;
+}
 
 function CheckEmailContent() {
   const router = useRouter();
@@ -62,91 +72,43 @@ function CheckEmailContent() {
   const text = checkEmailText[language];
 
   const emailParam = searchParams.get("email") || "";
-  const codeParam = searchParams.get("code") || "";
-  const nextParam = searchParams.get("next") || "/user";
+  const nextParam = safeNextPath(searchParams.get("next"));
 
-  const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [message, setMessage] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
-  const [demoCode, setDemoCode] = useState(codeParam);
 
-  useEffect(() => {
-    if (codeParam && codeParam.length === 6) {
-      setDigits(codeParam.split(""));
-      setDemoCode(codeParam);
-    }
-  }, [codeParam]);
-
-  function handleDigitChange(index: number, value: string) {
-    if (value.length > 1) {
-      const pasted = value.slice(0, 6).split("");
-      const newDigits = [...digits];
-      pasted.forEach((char, i) => {
-        if (i < 6) newDigits[i] = char;
-      });
-      setDigits(newDigits);
-      return;
-    }
-
-    const newDigits = [...digits];
-    newDigits[index] = value;
-    setDigits(newDigits);
-
-    if (value && index < 5) {
-      const nextInput = document.getElementById(`digit-${index + 1}`);
-      nextInput?.focus();
-    }
-  }
-
-  async function handleVerifyCode(e: React.FormEvent) {
-    e.preventDefault();
+  // Verification is owned by Firebase: we re-read the account and trust only
+  // its emailVerified flag. There is no client-side code to guess or bypass.
+  async function handleContinue() {
     setMessage("");
-
-    const inputCode = digits.join("");
-    if (inputCode.length !== 6) {
-      setMessage("Please enter all 6 digits of your verification code.");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      let verified = false;
+      const currentUser = auth.currentUser;
 
-      if (emailParam) {
-        const vQuery = query(
-          collection(db, "email_verifications"),
-          where("email", "==", emailParam)
-        );
-        const vSnap = await getDocs(vQuery);
-
-        if (!vSnap.empty) {
-          const matchDoc = vSnap.docs.find((d) => d.data().code === inputCode);
-          if (matchDoc) {
-            await updateDoc(doc(db, "email_verifications", matchDoc.id), {
-              is_verified: true,
-            });
-            verified = true;
-          }
-        }
+      if (!currentUser) {
+        setIsSuccess(false);
+        setMessage(text.noSessionMsg);
+        return;
       }
 
-      if (verified || inputCode === codeParam || inputCode === "123456") {
+      await currentUser.reload();
+
+      if (auth.currentUser?.emailVerified) {
         setIsSuccess(true);
         setMessage(text.successMsg);
-
-        setTimeout(() => {
-          router.push(nextParam);
-          router.refresh();
-        }, 1200);
+        router.push(nextParam);
+        router.refresh();
       } else {
-        setMessage(text.invalidCodeMsg);
+        setIsSuccess(false);
+        setMessage(text.notVerifiedMsg);
       }
     } catch (err: any) {
-      console.error("Verification error:", err);
-      setMessage("Verification failed. Please try again.");
+      console.error("Verification check error:", err);
+      setIsSuccess(false);
+      setMessage(formatAuthError(err, text.notVerifiedMsg));
     } finally {
       setLoading(false);
     }
@@ -157,26 +119,19 @@ function CheckEmailContent() {
     setMessage("");
 
     try {
-      if (auth.currentUser) {
-        await sendEmailVerification(auth.currentUser);
+      if (!auth.currentUser) {
+        setIsSuccess(false);
+        setMessage(text.noSessionMsg);
+        return;
       }
 
-      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-      if (emailParam) {
-        await addDoc(collection(db, "email_verifications"), {
-          email: emailParam,
-          code: newCode,
-          is_verified: false,
-          created_at: new Date().toISOString(),
-        });
-      }
-
-      setDemoCode(newCode);
-      setDigits(newCode.split(""));
-      setMessage(`Fresh code & verification email sent! Code: ${newCode}`);
+      await sendEmailVerification(auth.currentUser);
+      setIsSuccess(true);
+      setMessage(text.resentMsg);
     } catch (err: any) {
       console.error("Resend error:", err);
-      setMessage("Sent new verification link to your email.");
+      setIsSuccess(false);
+      setMessage(formatAuthError(err, "Could not send the verification email. Please try again shortly."));
     } finally {
       setResending(false);
     }
@@ -209,71 +164,49 @@ function CheckEmailContent() {
         </p>
       </div>
 
-      {demoCode && (
-        <div className="inline-flex items-center gap-2 rounded-full bg-orange-50 px-4 py-1.5 text-xs font-black text-orange-600 border border-orange-200">
-          <ShieldCheck size={16} /> Verification Code: <span className="font-mono text-sm tracking-widest">{demoCode}</span>
+      <p className="rounded-2xl bg-orange-50 border border-orange-100 p-4 text-xs font-medium leading-relaxed text-gray-700">
+        {text.instructions}
+      </p>
+
+      {message && (
+        <div
+          className={`rounded-2xl p-4 text-xs font-bold ${
+            isSuccess
+              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {message}
         </div>
       )}
 
-      <form onSubmit={handleVerifyCode} className="space-y-6">
-        <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
-            {text.enterCode}
-          </label>
-          <div className="flex justify-center gap-2 sm:gap-3">
-            {digits.map((digit, index) => (
-              <input
-                key={index}
-                id={`digit-${index}`}
-                type="text"
-                maxLength={6}
-                value={digit}
-                onChange={(e) => handleDigitChange(index, e.target.value)}
-                className="h-14 w-12 sm:w-14 rounded-2xl border-2 border-gray-200 text-center text-2xl font-black text-gray-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
-              />
-            ))}
-          </div>
-        </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={loading}
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 py-4 text-sm font-black text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20 disabled:opacity-50 transition"
+        >
+          {loading ? (
+            <Loader2 className="animate-spin" size={18} />
+          ) : isSuccess ? (
+            <CheckCircle2 size={18} />
+          ) : (
+            <ArrowRight size={18} />
+          )}
+          {loading ? text.checking : text.continueButton}
+        </button>
 
-        {message && (
-          <div
-            className={`rounded-2xl p-4 text-xs font-bold ${
-              isSuccess
-                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                : "bg-red-50 text-red-700 border border-red-200"
-            }`}
-          >
-            {message}
-          </div>
-        )}
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 py-4 text-sm font-black text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20 disabled:opacity-50 transition"
-          >
-            {loading ? (
-              <Loader2 className="animate-spin" size={18} />
-            ) : isSuccess ? (
-              <CheckCircle2 size={18} />
-            ) : (
-              <ArrowRight size={18} />
-            )}
-            {loading ? "Verifying..." : text.verifyButton}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleResendEmail}
-            disabled={resending}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-5 py-4 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition"
-          >
-            {resending ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-            {text.resendButton}
-          </button>
-        </div>
-      </form>
+        <button
+          type="button"
+          onClick={handleResendEmail}
+          disabled={resending}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-5 py-4 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition"
+        >
+          {resending ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+          {text.resendButton}
+        </button>
+      </div>
 
       <div className="flex justify-center gap-6 pt-4 border-t border-gray-100 text-xs font-bold text-gray-500">
         <Link href="/login" className="hover:text-orange-600">

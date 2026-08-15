@@ -73,6 +73,28 @@ type TableItem = {
   color: string;
 };
 
+// Starter layout used when a restaurant has no tables saved yet. Defined at
+// module scope so the load effect can call it without a use-before-declare.
+function buildDefaultTables(zone: string, seed: number): TableItem[] {
+  return Array.from({ length: 6 }, (_, index) => {
+    const i = index + 1;
+    return {
+      id: `temp_${i}_${seed}`,
+      table_name: `T${i}`,
+      seats: i % 2 === 0 ? 4 : 2,
+      zone,
+      status: "available",
+      shape: i % 3 === 0 ? "circle" : "square",
+      position_x: 60 + ((i - 1) % 3) * 160,
+      position_y: 60 + Math.floor((i - 1) / 3) * 160,
+      width: i % 3 === 0 ? 100 : 90,
+      height: i % 3 === 0 ? 100 : 90,
+      rotation: 0,
+      color: "#f97316",
+    } satisfies TableItem;
+  });
+}
+
 type MenuItem = {
   id?: string;
   name: string;
@@ -201,8 +223,9 @@ export default function PartnerOnboardingPage() {
             })) as TableItem[];
             setTables(loadedTables);
           } else {
-            // Generate default tables for onboarding
-            generateDefaultTables(data.id);
+            // Seed a starter layout the owner can drag around
+            const mainZone = data.zones?.[0] || "Main Hall";
+            setTables(buildDefaultTables(mainZone, Date.now()));
           }
         }
       } catch (err: any) {
@@ -214,30 +237,6 @@ export default function PartnerOnboardingPage() {
 
     return () => unsubscribe();
   }, [router]);
-
-  function generateDefaultTables(restaurantId: string) {
-    const defaultTables: TableItem[] = [];
-    const mainZone = zones[0] || "Main Hall";
-
-    for (let i = 1; i <= 6; i++) {
-      defaultTables.push({
-        id: `temp_${i}_${Date.now()}`,
-        table_name: `T${i}`,
-        seats: i % 2 === 0 ? 4 : 2,
-        zone: mainZone,
-        status: "available",
-        shape: i % 3 === 0 ? "circle" : "square",
-        position_x: 60 + ((i - 1) % 3) * 160,
-        position_y: 60 + Math.floor((i - 1) / 3) * 160,
-        width: i % 3 === 0 ? 100 : 90,
-        height: i % 3 === 0 ? 100 : 90,
-        rotation: 0,
-        color: "#f97316",
-      });
-    }
-
-    setTables(defaultTables);
-  }
 
   function handleAddZone() {
     if (!newZoneName.trim()) return;

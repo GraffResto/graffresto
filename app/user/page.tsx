@@ -24,7 +24,7 @@ import {
   User,
   Utensils,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -47,7 +47,8 @@ type RestaurantItem = {
   image_url?: string;
   cuisine_type?: string;
   city?: string;
-  rating?: number;
+  /** null when the restaurant has no ratings yet */
+  rating?: number | null;
   price?: string;
   is_open?: boolean;
 };
@@ -101,8 +102,19 @@ export default function CustomerPortalPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [myBookings, setMyBookings] = useState<UserBooking[]>([]);
 
+  // Snapshot cleanups are kept here: an async onAuthStateChanged callback
+  // cannot hand a cleanup function back to React, so we detach them ourselves.
+  const listenersRef = useRef<Array<() => void>>([]);
+
   useEffect(() => {
+    const detachListeners = () => {
+      listenersRef.current.forEach((unsubscribe) => unsubscribe());
+      listenersRef.current = [];
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachListeners();
+
       if (!user) {
         // Redirect unauthenticated user to login
         router.push("/login");
@@ -135,7 +147,7 @@ export default function CustomerPortalPage() {
               "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1000&auto=format&fit=crop",
             cuisine_type: d.data().cuisine_type || "Fine Dining",
             city: d.data().city || "Tashkent",
-            rating: d.data().rating || 4.8,
+            rating: typeof d.data().rating === "number" ? d.data().rating : null,
             price: d.data().price || "$$",
             is_open: d.data().is_open ?? true,
           }));
@@ -155,7 +167,7 @@ export default function CustomerPortalPage() {
             booking_time: d.data().booking_time || "",
             status: d.data().status || "pending",
             restaurant_id: d.data().restaurant_id || "",
-            table_name: d.data().table_name || "T1",
+            table_name: d.data().table_name || "",
           }));
           setMyBookings(bList);
         });
@@ -176,20 +188,19 @@ export default function CustomerPortalPage() {
           setMenuItems(mList);
         });
 
-        setLoading(false);
+        listenersRef.current = [unsubRestaurants, unsubBookings, unsubMenu];
 
-        return () => {
-          unsubRestaurants();
-          unsubBookings();
-          unsubMenu();
-        };
+        setLoading(false);
       } catch (err) {
         console.error("Customer portal load error:", err);
         setLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      detachListeners();
+    };
   }, [router]);
 
   async function handleLogout() {
@@ -252,14 +263,24 @@ export default function CustomerPortalPage() {
 
             <Link
               href="/user/bookings"
+              aria-label="My bookings"
               className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
             >
               <CalendarDays size={18} />
               {myBookings.length > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white shadow-sm">
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-black text-white shadow-sm">
                   {myBookings.length}
                 </span>
               )}
+            </Link>
+
+            <Link
+              href="/user/profile"
+              aria-label="My profile"
+              title={userName}
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-sm font-black text-orange-600 hover:bg-orange-200 transition"
+            >
+              {userName.charAt(0).toUpperCase() || "U"}
             </Link>
 
             <button
@@ -410,10 +431,12 @@ export default function CustomerPortalPage() {
                     className="h-44 w-full bg-cover bg-center relative"
                     style={{ backgroundImage: `url(${res.image_url})` }}
                   >
-                    <div className="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-black text-gray-900 shadow-md backdrop-blur-md">
-                      <Star size={14} className="fill-amber-400 text-amber-400" />
-                      <span>{res.rating || 4.8}</span>
-                    </div>
+                    {res.rating != null && (
+                      <div className="absolute top-3 right-3 flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-black text-gray-900 shadow-md backdrop-blur-md">
+                        <Star size={14} className="fill-amber-400 text-amber-400" />
+                        <span>{res.rating.toFixed(1)}</span>
+                      </div>
+                    )}
 
                     <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs font-bold text-white backdrop-blur-md">
                       <Clock size={12} className="text-orange-400" />
@@ -520,6 +543,12 @@ export default function CustomerPortalPage() {
           className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 transition"
         >
           <CalendarDays size={16} /> <span>Bookings</span>
+        </Link>
+        <Link
+          href="/user/profile"
+          className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 transition"
+        >
+          <User size={16} /> <span>Profile</span>
         </Link>
       </nav>
     </main>

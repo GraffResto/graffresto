@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Globe } from "lucide-react";
 import { Language } from "@/lib/translations";
 import { useLanguage } from "@/components/LanguageProvider";
@@ -30,11 +30,6 @@ const languageOptions: {
 export default function LanguageSwitcher() {
   const { language, setLanguage } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const activeLanguage =
     languageOptions.find((option) => option.value === language) ||
@@ -45,8 +40,9 @@ export default function LanguageSwitcher() {
     setIsOpen(false);
   }
 
-  // Prevent hydration mismatch by displaying static label during SSR
-  const displayLabel = mounted ? activeLanguage.label : "EN";
+  // The provider reads the stored language through useSyncExternalStore, so
+  // server and hydration renders already agree — no mounted guard needed.
+  const displayLabel = activeLanguage.label;
 
   return (
     <div className="relative">

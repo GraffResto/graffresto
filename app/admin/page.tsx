@@ -30,7 +30,7 @@ import {
   Utensils,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import {
@@ -42,13 +42,10 @@ import {
   getDocs,
   addDoc,
   doc,
-  setDoc,
   updateDoc,
-  deleteDoc,
   onSnapshot,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
   formatAuthError,
 } from "@/lib/firebase";
@@ -92,21 +89,14 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "customers" | "restaurants" | "staff">("overview");
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [passwordBypass, setPasswordBypass] = useState("");
+
+  // Active Firestore subscriptions, so they can be detached on unmount / re-sync
+  const listenersRef = useRef<Array<() => void>>([]);
 
   // Data Collections
   const [customers, setCustomers] = useState<UserProfile[]>([]);
   const [restaurants, setRestaurants] = useState<RestaurantItem[]>([]);
-  const [staffList, setStaffList] = useState<StaffMember[]>([
-    {
-      id: "st_1",
-      full_name: "Platform Founder",
-      email: "owner@dineflow.uz",
-      phone: "+998 90 000 00 00",
-      role: "Super Admin",
-      status: "Active",
-    },
-  ]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [totalBookings, setTotalBookings] = useState(0);
 
   // Search Filters
@@ -120,44 +110,42 @@ export default function AdminDashboardPage() {
   const [newStaffPhone, setNewStaffPhone] = useState("");
   const [newStaffRole, setNewStaffRole] = useState<StaffMember["role"]>("Support Manager");
 
-  // Inline Admin Login Form States (Pre-filled with Owner Credentials)
-  const [adminEmail, setAdminEmail] = useState("malodoyzizushka@gmail.com");
-  const [adminPassword, setAdminPassword] = useState("Izzat_2006_bmw");
+  // Inline Admin Login Form States
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   const [adminLoginError, setAdminLoginError] = useState("");
+
+  const detachListeners = useCallback(() => {
+    listenersRef.current.forEach((unsubscribe) => unsubscribe());
+    listenersRef.current = [];
+  }, []);
+
+  // Reads the signed-in user's role straight from Firestore. This is the only
+  // way into the panel: there is no master key and no email-pattern shortcut.
+  const resolveAdminRole = useCallback(async (uid: string): Promise<boolean> => {
+    const pSnap = await getDocs(query(collection(db, "profiles"), where("uid", "==", uid)));
+    if (pSnap.empty) return false;
+    return pSnap.docs[0].data().role === "admin";
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        if (passwordBypass === "dineflow2026" || passwordBypass === "admin123") {
-          setIsAdmin(true);
-          setupRealtimeListeners();
-        } else {
-          setIsAdmin(false);
-          setLoading(false);
-        }
+        detachListeners();
+        setIsAdmin(false);
+        setLoading(false);
         return;
       }
 
       try {
-        const pSnap = await getDocs(query(collection(db, "profiles"), where("uid", "==", user.uid)));
+        const allowed = await resolveAdminRole(user.uid);
+        setIsAdmin(allowed);
 
-        let userRole = "customer";
-        if (!pSnap.empty) {
-          userRole = pSnap.docs[0].data().role || "customer";
-        }
-
-        if (
-          userRole === "admin" ||
-          user.email === "malodoyzizushka@gmail.com" ||
-          user.email?.includes("admin") ||
-          passwordBypass === "admin123"
-        ) {
-          setIsAdmin(true);
+        if (allowed) {
           setupRealtimeListeners();
         } else {
-          setIsAdmin(true);
-          setupRealtimeListeners();
+          detachListeners();
         }
       } catch (err) {
         console.error("Admin auth check error:", err);
@@ -167,87 +155,32 @@ export default function AdminDashboardPage() {
       }
     });
 
-    return () => unsubscribe();
-  }, [passwordBypass]);
+    return () => {
+      unsubscribe();
+      detachListeners();
+    };
+  }, [detachListeners, resolveAdminRole]);
 
   async function handleAdminSubmitLogin(e: React.FormEvent) {
     e.preventDefault();
     setAdminLoginError("");
     setAdminLoginLoading(true);
 
-    const inputE = adminEmail.trim();
-    const inputP = adminPassword.trim();
-
     try {
-      // 1. Direct Owner Credential Match
-      if (
-        (inputE === "malodoyzizushka@gmail.com" && inputP === "Izzat_2006_bmw") ||
-        inputP === "dineflow2026" ||
-        inputP === "admin123"
-      ) {
-        setPasswordBypass(inputP);
+      const res = await signInWithEmailAndPassword(
+        auth,
+        adminEmail.trim(),
+        adminPassword
+      );
 
-        // Attempt sign in or create user
-        let uid = "";
-        try {
-          const res = await signInWithEmailAndPassword(auth, inputE, inputP);
-          uid = res.user.uid;
-        } catch (signInErr: any) {
-          try {
-            const createRes = await createUserWithEmailAndPassword(auth, inputE, inputP);
-            uid = createRes.user.uid;
-          } catch (createErr) {
-            console.warn("Bypass auth notice:", createErr);
-          }
-        }
+      const allowed = await resolveAdminRole(res.user.uid);
 
-        if (uid) {
-          await setDoc(
-            doc(db, "profiles", uid),
-            {
-              uid,
-              email: inputE,
-              full_name: "Platform Founder",
-              role: "admin",
-              created_at: new Date().toISOString(),
-            },
-            { merge: true }
-          );
-
-          await setDoc(
-            doc(db, "users", uid),
-            {
-              uid,
-              email: inputE,
-              full_name: "Platform Founder",
-              role: "admin",
-              created_at: new Date().toISOString(),
-            },
-            { merge: true }
-          );
-        }
-
-        setIsAdmin(true);
-        setupRealtimeListeners();
-        return;
-      }
-
-      // 2. Standard Firebase Auth Admin Login
-      const res = await signInWithEmailAndPassword(auth, inputE, inputP);
-      const user = res.user;
-
-      const pSnap = await getDocs(query(collection(db, "profiles"), where("uid", "==", user.uid)));
-      let role = "customer";
-      if (!pSnap.empty) {
-        role = pSnap.docs[0].data().role || "customer";
-      }
-
-      if (role === "admin" || user.email === "malodoyzizushka@gmail.com") {
+      if (allowed) {
         setIsAdmin(true);
         setupRealtimeListeners();
       } else {
-        setAdminLoginError("Access denied. Your account is not authorized as Platform Admin.");
         await signOut(auth);
+        setAdminLoginError("Access denied. Your account is not authorized as Platform Admin.");
       }
     } catch (err: any) {
       console.error("Admin login error:", err);
@@ -258,6 +191,9 @@ export default function AdminDashboardPage() {
   }
 
   function setupRealtimeListeners() {
+    // Drop any previous subscriptions so re-syncing never stacks listeners
+    detachListeners();
+
     // 1. Real-time Customers
     const unsubCustomers = onSnapshot(collection(db, "profiles"), (snap) => {
       const list: UserProfile[] = snap.docs
@@ -282,23 +218,21 @@ export default function AdminDashboardPage() {
 
     // 4. Real-time Platform Staff
     const unsubStaff = onSnapshot(collection(db, "platform_staff"), (snap) => {
-      if (!snap.empty) {
-        const list: StaffMember[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        })) as StaffMember[];
-        setStaffList(list);
-      }
+      const list: StaffMember[] = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as StaffMember[];
+      setStaffList(list);
     });
 
-    setLoading(false);
+    listenersRef.current = [
+      unsubCustomers,
+      unsubRestaurants,
+      unsubBookings,
+      unsubStaff,
+    ];
 
-    return () => {
-      unsubCustomers();
-      unsubRestaurants();
-      unsubBookings();
-      unsubStaff();
-    };
+    setLoading(false);
   }
 
   async function handleUpdateRestaurantStatus(id: string, newStatus: string) {
@@ -336,9 +270,9 @@ export default function AdminDashboardPage() {
 
     try {
       await addDoc(collection(db, "platform_staff"), {
-        full_name: newStaffName,
-        email: newStaffEmail,
-        phone: newStaffPhone || "+998 90 000 00 00",
+        full_name: newStaffName.trim(),
+        email: newStaffEmail.trim(),
+        phone: newStaffPhone.trim(),
         role: newStaffRole,
         status: "Active",
         created_at: new Date().toISOString(),
@@ -420,7 +354,7 @@ export default function AdminDashboardPage() {
                 required
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}
-                placeholder="malodoyzizushka@gmail.com"
+                placeholder="admin@dineflow.uz"
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm font-bold text-white outline-none focus:border-orange-500"
               />
             </div>
@@ -611,7 +545,7 @@ export default function AdminDashboardPage() {
                         <tr key={res.id} className="hover:bg-white/5">
                           <td className="py-4 px-4 font-black text-white">{res.name}</td>
                           <td className="py-4 px-4 font-mono text-orange-400 font-bold">
-                            {res.stir || "784920194 (Verified)"}
+                            {res.stir || <span className="text-gray-500">Not provided</span>}
                           </td>
                           <td className="py-4 px-4">
                             {res.cuisine_type || "General"} • {res.city || "Tashkent"}
@@ -766,7 +700,7 @@ export default function AdminDashboardPage() {
                     <tr key={res.id} className="hover:bg-white/5">
                       <td className="py-4 px-4 font-black text-white">{res.name}</td>
                       <td className="py-4 px-4 font-mono text-orange-400 font-bold">
-                        {res.stir || "784920194"}
+                        {res.stir || <span className="text-gray-500">Not provided</span>}
                       </td>
                       <td className="py-4 px-4">
                         {res.cuisine_type || "General"} • {res.city || "Tashkent"}
@@ -822,7 +756,7 @@ export default function AdminDashboardPage() {
               {/* Add staff form */}
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
                 <h3 className="text-sm font-bold text-orange-400 uppercase">Add Platform Employee</h3>
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                   <input
                     type="text"
                     placeholder="Employee Full Name"
@@ -835,6 +769,13 @@ export default function AdminDashboardPage() {
                     placeholder="Email Address"
                     value={newStaffEmail}
                     onChange={(e) => setNewStaffEmail(e.target.value)}
+                    className="rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-bold outline-none focus:border-orange-500"
+                  />
+                  <input
+                    type="tel"
+                    placeholder="Phone Number"
+                    value={newStaffPhone}
+                    onChange={(e) => setNewStaffPhone(e.target.value)}
                     className="rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-bold outline-none focus:border-orange-500"
                   />
                   <select
@@ -860,10 +801,16 @@ export default function AdminDashboardPage() {
               </div>
 
               {/* Staff Grid */}
+              {staffList.length === 0 && (
+                <p className="mt-8 rounded-2xl border border-dashed border-white/10 p-10 text-center text-sm font-bold text-gray-400">
+                  No platform employees added yet.
+                </p>
+              )}
+
               <div className="mt-8 grid gap-4 md:grid-cols-3">
-                {staffList.map((staff, i) => (
+                {staffList.map((staff) => (
                   <div
-                    key={i}
+                    key={staff.id || staff.email}
                     className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-3"
                   >
                     <div className="flex items-center gap-3">

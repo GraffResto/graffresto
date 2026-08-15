@@ -9,8 +9,6 @@ import {
   db,
   doc,
   setDoc,
-  collection,
-  addDoc,
   googleProvider,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -20,6 +18,7 @@ import {
   formatAuthError,
 } from "@/lib/firebase";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import FirebaseConfigNotice from "@/components/FirebaseConfigNotice";
 import { useLanguage } from "@/components/LanguageProvider";
 
 const customerRegisterText = {
@@ -149,7 +148,7 @@ export default function CustomerRegisterPage() {
         console.warn("Secondary users collection sync notice:", e);
       }
 
-      // Send Firebase Email Verification & Generate 6-digit code
+      // Firebase owns the verification link; no code is minted client-side.
       if (auth.currentUser) {
         try {
           await sendEmailVerification(auth.currentUser);
@@ -158,16 +157,7 @@ export default function CustomerRegisterPage() {
         }
       }
 
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-      await addDoc(collection(db, "email_verifications"), {
-        uid,
-        email,
-        code: verificationCode,
-        is_verified: false,
-        created_at: new Date().toISOString(),
-      });
-
-      router.push(`/auth/check-email?email=${encodeURIComponent(email)}&code=${verificationCode}`);
+      router.push(`/auth/check-email?email=${encodeURIComponent(email)}`);
       router.refresh();
     } catch (error: any) {
       console.error("Registration error:", error);
@@ -247,6 +237,8 @@ export default function CustomerRegisterPage() {
           <p className="mt-2 text-gray-500">{text.subtitle}</p>
 
           <form className="mt-6 space-y-5 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+            <FirebaseConfigNotice />
+
             <div>
               <label className="mb-2 block text-sm font-bold text-gray-800">
                 {text.fullName}

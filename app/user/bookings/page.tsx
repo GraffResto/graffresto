@@ -20,6 +20,8 @@ import {
   query,
   where,
   getDocs,
+  doc,
+  getDoc,
   onAuthStateChanged,
 } from "@/lib/firebase";
 
@@ -117,16 +119,41 @@ export default function UserBookingsPage() {
         );
         const bSnap = await getDocs(bQuery);
 
-        const list: Booking[] = bSnap.docs.map((d) => ({
-          id: d.id,
-          booking_date: d.data().booking_date || "",
-          booking_time: d.data().booking_time || "",
-          guests_count: d.data().guests_count || 1,
-          status: d.data().status || "pending",
-          notes: d.data().notes || null,
-          restaurant_name: d.data().restaurant_name || "Restaurant",
-          table_name: d.data().table_name || "T1",
-        }));
+        // Bookings only store restaurant_id, so resolve each name once
+        const restaurantIds = Array.from(
+          new Set(bSnap.docs.map((d) => d.data().restaurant_id).filter(Boolean))
+        );
+
+        const restaurantNames = new Map<string, string>();
+        await Promise.all(
+          restaurantIds.map(async (restaurantId: string) => {
+            try {
+              const rDoc = await getDoc(doc(db, "restaurants", restaurantId));
+              if (rDoc.exists()) {
+                restaurantNames.set(restaurantId, rDoc.data().name || "Restaurant");
+              }
+            } catch (err) {
+              console.warn("Could not resolve restaurant name:", err);
+            }
+          })
+        );
+
+        const list: Booking[] = bSnap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            booking_date: data.booking_date || "",
+            booking_time: data.booking_time || "",
+            guests_count: data.guests_count || 1,
+            status: data.status || "pending",
+            notes: data.notes || null,
+            restaurant_name:
+              data.restaurant_name ||
+              restaurantNames.get(data.restaurant_id) ||
+              "Restaurant",
+            table_name: data.table_name || "",
+          };
+        });
 
         setBookings(list);
       } catch (error) {

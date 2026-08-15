@@ -12,15 +12,13 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType>({ user: null, loading: true });
 
-// Public routes accessible without authentication
+// Public routes accessible without authentication.
+// /admin is deliberately NOT here: only its login screen is reachable signed out.
 const PUBLIC_PATHS = [
   "/",
   "/login",
   "/register",
-  "/register/customer",
-  "/register/partner",
   "/auth/check-email",
-  "/admin",
   "/admin/login",
 ];
 
@@ -41,8 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (!currentUser && !isPublic) {
-        // Redirect unauthenticated user attempting to access protected route to /login
-        router.push("/login");
+        // Send unauthenticated visitors to the sign-in screen for the area
+        // they tried to reach, so admins do not land on the customer login.
+        router.push(pathname?.startsWith("/admin") ? "/admin/login" : "/login");
       }
     });
 

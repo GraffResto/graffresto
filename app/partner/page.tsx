@@ -27,10 +27,12 @@ import {
   Settings,
   Store,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
+import PartnerHeaderActions from "@/components/PartnerHeaderActions";
 import {
   auth,
   db,
@@ -61,22 +63,32 @@ export default function PartnerDashboardPage() {
   const { language } = useLanguage();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [restaurantName, setRestaurantName] = useState("");
 
-  // KPI Stats
-  const [todayCount, setTodayCount] = useState(24);
-  const [pendingCount, setPendingCount] = useState(3);
-  const [completedCount, setCompletedCount] = useState(18);
-  const [totalBookingsCount, setTotalBookingsCount] = useState(145);
-  const [tablesCount, setTablesCount] = useState(20);
-  const [menuItemsCount, setMenuItemsCount] = useState(48);
+  // KPI Stats — all derived from this restaurant's own data
+  const [todayCount, setTodayCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [totalBookingsCount, setTotalBookingsCount] = useState(0);
+  const [tablesCount, setTablesCount] = useState(0);
+  const [menuItemsCount, setMenuItemsCount] = useState(0);
 
   const [recentBookings, setRecentBookings] = useState<BookingItem[]>([]);
   const [scheduleBookings, setScheduleBookings] = useState<BookingItem[]>([]);
 
+  // Subscriptions are held in a ref: the async auth callback below cannot
+  // return a working cleanup function to React, so we detach them ourselves.
+  const listenersRef = useRef<Array<() => void>>([]);
+
   useEffect(() => {
+    const detachListeners = () => {
+      listenersRef.current.forEach((unsubscribe) => unsubscribe());
+      listenersRef.current = [];
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachListeners();
+
       if (!user) {
         router.push("/login");
         return;
@@ -86,61 +98,78 @@ export default function PartnerDashboardPage() {
         const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
         const rSnap = await getDocs(rQuery);
 
-        if (!rSnap.empty) {
-          const rDoc = rSnap.docs[0];
-          setRestaurantId(rDoc.id);
-          setRestaurantName(rDoc.data().name || "Afsona Restaurant");
+        if (rSnap.empty) {
+          // Owner has no restaurant yet — send them through onboarding
+          setIsLoading(false);
+          router.push("/partner/pending");
+          return;
         }
+
+        const rDoc = rSnap.docs[0];
+        const ownRestaurantId = rDoc.id;
+        setRestaurantName(rDoc.data().name || "Your restaurant");
 
         const todayStr = new Date().toISOString().split("T")[0];
 
-        // Real-time Bookings Feed
-        const bQuery = query(collection(db, "bookings"));
+        // Real-time bookings for THIS restaurant only
+        const bQuery = query(
+          collection(db, "bookings"),
+          where("restaurant_id", "==", ownRestaurantId)
+        );
         const unsubBookings = onSnapshot(bQuery, (snap) => {
-          const list: BookingItem[] = snap.docs.map((d) => ({
-            id: d.id,
-            customer_name: d.data().customer_name || "Karimov Jasur",
-            customer_phone: d.data().customer_phone || "+998 90 123 45 67",
-            booking_date: d.data().booking_date || todayStr,
-            booking_time: d.data().booking_time || "12:00",
-            guests_count: d.data().guests_count || 4,
-            table_name: d.data().table_name || "Table 5",
-            occasion: d.data().occasion || "Birthday",
-            status: d.data().status || "approved",
-            created_at: d.data().created_at || new Date().toISOString(),
-          }));
+          const list: BookingItem[] = snap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              customer_name: data.customer_name || "Guest",
+              customer_phone: data.customer_phone || "",
+              booking_date: data.booking_date || "",
+              booking_time: data.booking_time || "",
+              guests_count: data.guests_count ?? 0,
+              table_name: data.table_name || "",
+              occasion: data.occasion || "",
+              status: data.status || "pending",
+              created_at: data.created_at || "",
+            };
+          });
 
-          if (list.length > 0) {
-            setRecentBookings(list.slice(0, 5));
-            setScheduleBookings(list.slice(0, 6));
-            setTodayCount(list.filter((b) => b.booking_date === todayStr).length || 24);
-            setPendingCount(list.filter((b) => b.status === "pending").length || 3);
-            setCompletedCount(list.filter((b) => b.status === "completed").length || 18);
-            setTotalBookingsCount(list.length || 145);
-          } else {
-            // Mock data fallback matching Mockup 5
-            const fallback: BookingItem[] = [
-              { id: "b1", customer_name: "Karimov Jasur", booking_date: todayStr, booking_time: "12:00", guests_count: 4, occasion: "Birthday", status: "approved" },
-              { id: "b2", customer_name: "Aliyeva Malika", booking_date: todayStr, booking_time: "13:30", guests_count: 2, occasion: "Date", status: "pending" },
-              { id: "b3", customer_name: "Raximov Bobur", booking_date: todayStr, booking_time: "15:00", guests_count: 6, occasion: "Anniversary", status: "approved" },
-              { id: "b4", customer_name: "Toshmatov Sarvar", booking_date: todayStr, booking_time: "17:00", guests_count: 3, occasion: "Dinner", status: "pending" },
-              { id: "b5", customer_name: "Yusupova Dilnoza", booking_date: todayStr, booking_time: "19:00", guests_count: 8, occasion: "Business", status: "approved" },
-              { id: "b6", customer_name: "Nazarov Eldor", booking_date: todayStr, booking_time: "20:30", guests_count: 2, occasion: "Casual", status: "pending" },
-            ];
-            setRecentBookings(fallback.slice(0, 4));
-            setScheduleBookings(fallback);
-          }
+          const sorted = [...list].sort((a, b) =>
+            `${a.booking_date} ${a.booking_time}`.localeCompare(
+              `${b.booking_date} ${b.booking_time}`
+            )
+          );
+
+          setRecentBookings(sorted.slice(0, 5));
+          setScheduleBookings(sorted.filter((b) => b.booking_date === todayStr).slice(0, 6));
+          setTodayCount(list.filter((b) => b.booking_date === todayStr).length);
+          setPendingCount(list.filter((b) => b.status === "pending").length);
+          setCompletedCount(list.filter((b) => b.status === "completed").length);
+          setTotalBookingsCount(list.length);
           setIsLoading(false);
         });
 
-        return () => unsubBookings();
+        // Real-time table and menu counts for THIS restaurant
+        const unsubTables = onSnapshot(
+          query(collection(db, "tables"), where("restaurant_id", "==", ownRestaurantId)),
+          (snap) => setTablesCount(snap.size)
+        );
+
+        const unsubMenu = onSnapshot(
+          query(collection(db, "menu_items"), where("restaurant_id", "==", ownRestaurantId)),
+          (snap) => setMenuItemsCount(snap.size)
+        );
+
+        listenersRef.current = [unsubBookings, unsubTables, unsubMenu];
       } catch (err) {
         console.error("Dashboard error:", err);
         setIsLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      detachListeners();
+    };
   }, [router]);
 
   async function handleLogout() {
@@ -162,172 +191,24 @@ export default function PartnerDashboardPage() {
   return (
     <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
       {/* Sidebar matching Mockup 5 */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          {/* Logo */}
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          {/* Primary Nav */}
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center justify-between rounded-xl bg-orange-500 px-3.5 py-3 text-white font-bold shadow-md shadow-orange-500/20"
-            >
-              <div className="flex items-center gap-3">
-                <LayoutDashboard size={18} />
-                <span>Dashboard</span>
-              </div>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          {/* ERP Modules */}
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-            <Link
-              href="/partner/staff"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <User size={16} /> Staff
-            </Link>
-          </div>
-        </div>
-
-        {/* Bottom Sidebar Card & Logout */}
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="dashboard" />
 
       {/* Main Workspace Area matching Mockup 5 */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Top Header Bar */}
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur-md px-8 py-5">
           <div>
-            <h1 className="text-2xl font-black text-slate-900">Good morning, Afsona!</h1>
-            <p className="text-xs font-medium text-slate-500">Here's your restaurant overview</p>
+            <h1 className="text-2xl font-black text-slate-900">
+              Welcome back{restaurantName ? `, ${restaurantName}` : ""}!
+            </h1>
+            <p className="text-xs font-medium text-slate-500">Here&apos;s your restaurant overview</p>
           </div>
 
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
+            <PartnerHeaderActions />
 
-            <div className="relative">
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                <Bell size={18} />
-              </button>
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                3
-              </span>
-            </div>
-
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            
           </div>
         </header>
 
@@ -395,12 +276,18 @@ export default function PartnerDashboardPage() {
             {/* Left Col (2 cols): Today's Schedule Timeline */}
             <div className="lg:col-span-2 rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-sm space-y-6">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-black text-slate-900">Today's Schedule</h2>
+                <h2 className="text-xl font-black text-slate-900">Today&apos;s Schedule</h2>
                 <span className="text-xs font-bold text-slate-400">Real-time timeline</span>
               </div>
 
+              {scheduleBookings.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">
+                  No bookings scheduled for today yet.
+                </p>
+              )}
+
               <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
-                {scheduleBookings.map((item, idx) => (
+                {scheduleBookings.map((item) => (
                   <div key={item.id} className="relative flex items-center justify-between">
                     {/* Dot on timeline line */}
                     <div className="absolute -left-6 top-1.5 h-3 w-3 rounded-full bg-orange-500 ring-4 ring-orange-100" />
@@ -448,11 +335,20 @@ export default function PartnerDashboardPage() {
                 </div>
 
                 <div className="space-y-4">
+                  {recentBookings.length === 0 && (
+                    <p className="text-xs font-bold text-slate-400">No bookings yet.</p>
+                  )}
+
                   {recentBookings.map((b) => (
                     <div key={b.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 font-black text-xs text-slate-700">
-                          {b.customer_name.split(" ").map((n) => n[0]).join("")}
+                          {b.customer_name
+                            .split(" ")
+                            .filter(Boolean)
+                            .map((n) => n[0])
+                            .join("")
+                            .slice(0, 2) || "G"}
                         </div>
                         <div>
                           <p className="text-xs font-bold text-slate-900">{b.customer_name}</p>

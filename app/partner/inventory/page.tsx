@@ -27,10 +27,12 @@ import {
   Users,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
+import PartnerHeaderActions from "@/components/PartnerHeaderActions";
 import {
   auth,
   db,
@@ -65,7 +67,10 @@ export default function InventoryManagementPage() {
   const { language } = useLanguage();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [restaurantName, setRestaurantName] = useState("");
+
+  // Held in a ref because the async auth callback cannot return a cleanup
+  const inventoryListenerRef = useRef<(() => void) | null>(null);
 
   const [activeCategory, setActiveCategory] = useState("All Categories");
   const [searchQuery, setSearchQuery] = useState("");
@@ -73,54 +78,93 @@ export default function InventoryManagementPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
 
   useEffect(() => {
+    const detachInventory = () => {
+      inventoryListenerRef.current?.();
+      inventoryListenerRef.current = null;
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachInventory();
+
       if (!user) {
         router.push("/login");
         return;
       }
 
       try {
-        const unsub = onSnapshot(collection(db, "inventory"), (snap) => {
-          const list: InventoryItem[] = snap.docs.map((d) => ({
-            id: d.id,
-            name: d.data().name || "Item",
-            category: d.data().category || "Meat",
-            current_stock: d.data().current_stock || 10,
-            unit: d.data().unit || "kg",
-            pct: d.data().pct || 60,
-            min_threshold: d.data().min_threshold || 5,
-            supplier: d.data().supplier || "Toshkent Meat Co.",
-            status: d.data().status || "in_stock",
-            image_url: d.data().image_url || "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?q=80&w=200",
-          }));
+        const rSnap = await getDocs(
+          query(collection(db, "restaurants"), where("owner_id", "==", user.uid))
+        );
 
-          if (list.length > 0) {
-            setInventory(list);
-          } else {
-            // Mock dataset matching Inventory Mockup
-            setInventory([
-              { id: "i1", name: "Chicken Breast", category: "Meat", current_stock: 12, unit: "kg", pct: 60, min_threshold: 5, supplier: "Toshkent Meat Co.", status: "in_stock", image_url: "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?q=80&w=200" },
-              { id: "i2", name: "Beef Fillet", category: "Meat", current_stock: 3, unit: "kg", pct: 15, min_threshold: 8, supplier: "Toshkent Meat Co.", status: "low_stock", image_url: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=200" },
-              { id: "i3", name: "Tomatoes", category: "Vegetables", current_stock: 25, unit: "kg", pct: 80, min_threshold: 10, supplier: "Fresh Farm Ltd", status: "in_stock", image_url: "https://images.unsplash.com/photo-1592924357228-91a4daadcfea?q=80&w=200" },
-              { id: "i4", name: "Onions", category: "Vegetables", current_stock: 0, unit: "kg", pct: 0, min_threshold: 5, supplier: "Fresh Farm Ltd", status: "out_of_stock", image_url: "https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?q=80&w=200" },
-              { id: "i5", name: "Mozzarella Cheese", category: "Dairy", current_stock: 8, unit: "kg", pct: 40, min_threshold: 6, supplier: "DairyPro", status: "low_stock", image_url: "https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?q=80&w=200" },
-              { id: "i6", name: "Olive Oil", category: "Spices & Sauces", current_stock: 18, unit: "L", pct: 90, min_threshold: 5, supplier: "Mediterra Supply", status: "in_stock", image_url: "https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?q=80&w=200" },
-              { id: "i7", name: "Basmati Rice", category: "Dry Goods", current_stock: 45, unit: "kg", pct: 75, min_threshold: 15, supplier: "Grain House", status: "in_stock", image_url: "https://images.unsplash.com/photo-1586201375761-83865001e8ac?q=80&w=200" },
-              { id: "i8", name: "Cola Syrup", category: "Beverages", current_stock: 6, unit: "L", pct: 30, min_threshold: 4, supplier: "BevCo", status: "low_stock", image_url: "https://images.unsplash.com/photo-1554866585-cd94860890b7?q=80&w=200" },
-            ]);
-          }
+        if (rSnap.empty) {
+          setInventory([]);
           setIsLoading(false);
-        });
+          return;
+        }
 
-        return () => unsub();
+        const rDoc = rSnap.docs[0];
+        setRestaurantName(rDoc.data().name || "Your restaurant");
+
+        // Stock belonging to this restaurant only
+        inventoryListenerRef.current = onSnapshot(
+          query(collection(db, "inventory"), where("restaurant_id", "==", rDoc.id)),
+          (snap) => {
+            const list: InventoryItem[] = snap.docs.map((d) => {
+              const data = d.data();
+              const currentStock = Number(data.current_stock) || 0;
+              const minThreshold = Number(data.min_threshold) || 0;
+
+              return {
+                id: d.id,
+                name: data.name || "Item",
+                category: data.category || "Uncategorised",
+                current_stock: currentStock,
+                unit: data.unit || "kg",
+                // Fill level relative to twice the reorder point, so the bar
+                // reflects real stock instead of a fixed placeholder.
+                pct:
+                  data.pct !== undefined
+                    ? Number(data.pct)
+                    : minThreshold > 0
+                    ? Math.min(100, Math.round((currentStock / (minThreshold * 2)) * 100))
+                    : 0,
+                min_threshold: minThreshold,
+                supplier: data.supplier || "",
+                status:
+                  data.status ||
+                  (currentStock <= 0
+                    ? "out_of_stock"
+                    : currentStock <= minThreshold
+                    ? "low_stock"
+                    : "in_stock"),
+                image_url: data.image_url || "",
+              };
+            });
+
+            setInventory(list);
+            setIsLoading(false);
+          },
+          (err) => {
+            console.error("Inventory listener error:", err);
+            setIsLoading(false);
+          }
+        );
       } catch (err) {
         console.error("Inventory load error:", err);
         setIsLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      detachInventory();
+    };
   }, [router]);
+
+  // Distinct suppliers actually referenced by stock items
+  const supplierCount = new Set(
+    inventory.map((item) => item.supplier).filter(Boolean)
+  ).size;
 
   async function handleDeleteItem(id: string) {
     try {
@@ -157,132 +201,7 @@ export default function InventoryManagementPage() {
   return (
     <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
       {/* Sidebar matching Inventory Mockup */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <LayoutDashboard size={18} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-2.5 text-xs font-bold text-white shadow-md shadow-orange-500/20"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="inventory" />
 
       {/* Main Workspace Area matching Inventory Mockup */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -310,22 +229,9 @@ export default function InventoryManagementPage() {
             </div>
 
             <LanguageSwitcher />
+            <PartnerHeaderActions />
 
-            <div className="relative">
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                <Bell size={18} />
-              </button>
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                3
-              </span>
-            </div>
-
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            
           </div>
         </header>
 
@@ -337,7 +243,7 @@ export default function InventoryManagementPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Items</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">86</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">{inventory.length}</p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
                 <Boxes size={24} />
@@ -348,7 +254,9 @@ export default function InventoryManagementPage() {
             <div className="rounded-3xl bg-orange-500 p-6 text-white shadow-xl shadow-orange-500/20 flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-orange-100">Low Stock</p>
-                <p className="text-3xl font-black mt-2">6</p>
+                <p className="text-3xl font-black mt-2">
+                  {inventory.filter((i) => i.status === "low_stock").length}
+                </p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-400/40 text-white">
                 <AlertTriangle size={24} />
@@ -359,7 +267,9 @@ export default function InventoryManagementPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Out of Stock</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">2</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">
+                  {inventory.filter((i) => i.status === "out_of_stock").length}
+                </p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600">
                 <Boxes size={24} />
@@ -370,7 +280,7 @@ export default function InventoryManagementPage() {
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Suppliers</p>
-                <p className="text-3xl font-black text-slate-900 mt-2">12</p>
+                <p className="text-3xl font-black text-slate-900 mt-2">{supplierCount}</p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-600">
                 <Truck size={24} />

@@ -375,16 +375,9 @@ export default function PartnerRegisterPage() {
         }
       }
 
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-      await addDoc(collection(db, "email_verifications"), {
-        uid,
-        email,
-        code: verificationCode,
-        is_verified: false,
-        created_at: new Date().toISOString(),
-      });
-
-      router.push(`/auth/check-email?email=${encodeURIComponent(email)}&code=${verificationCode}&next=/partner/onboarding`);
+      router.push(
+        `/auth/check-email?email=${encodeURIComponent(email)}&next=${encodeURIComponent("/partner/onboarding")}`
+      );
       router.refresh();
     } catch (error: any) {
       console.error("Partner register error:", error);

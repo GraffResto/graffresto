@@ -24,10 +24,11 @@ import {
   Users,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
 import {
   auth,
   db,
@@ -58,69 +59,77 @@ export default function KitchenDisplaySystemPage() {
   const { language } = useLanguage();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [restaurantName, setRestaurantName] = useState("");
   const [isMuted, setIsMuted] = useState(false);
-  const [currentTime, setCurrentTime] = useState("12:34 PM");
+  // Empty until the client renders, otherwise server and client markup differ
+  const [currentTime, setCurrentTime] = useState("");
+
+  // Held in a ref because the async auth callback cannot return a cleanup
+  const ordersListenerRef = useRef<(() => void) | null>(null);
 
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
 
   useEffect(() => {
-    const timerInterval = setInterval(() => {
-      const d = new Date();
+    const tick = () =>
       setCurrentTime(
-        d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+        new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
       );
-    }, 10000);
+
+    tick();
+    const timerInterval = setInterval(tick, 10000);
+
+    const detachOrders = () => {
+      ordersListenerRef.current?.();
+      ordersListenerRef.current = null;
+    };
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachOrders();
+
       if (!user) {
         router.push("/login");
         return;
       }
 
       try {
-        const unsub = onSnapshot(collection(db, "kitchen_orders"), (snap) => {
-          const list: KitchenOrder[] = snap.docs.map((d) => ({
-            id: d.id,
-            order_number: d.data().order_number || "#0142",
-            table_name: d.data().table_name || "Table 5",
-            timer: d.data().timer || "2:14",
-            items: d.data().items || [
-              { name: "Pasta Bologna", quantity: 2, note: "no onions" },
-              { name: "Grilled Steak", quantity: 1 },
-            ],
-            status: d.data().status || "new",
-            is_urgent: d.data().is_urgent || false,
-          }));
+        const rSnap = await getDocs(
+          query(collection(db, "restaurants"), where("owner_id", "==", user.uid))
+        );
 
-          if (list.length > 0) {
-            setOrders(list);
-          } else {
-            // Mock dataset matching KDS Mockup
-            setOrders([
-              // NEW ORDERS (4)
-              { id: "k1", order_number: "#0142", table_name: "Table 5", timer: "2:14", status: "new", items: [{ name: "Pasta Bologna", quantity: 2, note: "no onions" }, { name: "Grilled Steak", quantity: 1 }] },
-              { id: "k2", order_number: "#0143", table_name: "Table 12", timer: "4:50", status: "new", items: [{ name: "Fish and Chips", quantity: 1 }, { name: "Spicy Fried Chicken", quantity: 3 }] },
-              { id: "k3", order_number: "#0144", table_name: "Table 3", timer: "6:02", status: "new", items: [{ name: "Kimchi Jjigae", quantity: 2 }] },
-              { id: "k4", order_number: "#0145", table_name: "Table 20", timer: "8:30", status: "new", items: [{ name: "Beef Bourguignon", quantity: 4, note: "extra spicy" }] },
-
-              // PREPARING (5)
-              { id: "k5", order_number: "#0139", table_name: "Table 8", timer: "11:20", status: "preparing", items: [{ name: "Spaghetti Carbonara", quantity: 1 }, { name: "Soup", quantity: 2 }] },
-              { id: "k6", order_number: "#0140", table_name: "Table 2", timer: "9:45", status: "preparing", items: [{ name: "Ratatouille", quantity: 3 }] },
-              { id: "k7", order_number: "#0141", table_name: "Table 15", timer: "16:10", status: "preparing", is_urgent: true, items: [{ name: "Tofu Scramble", quantity: 2 }, { name: "Grilled Steak", quantity: 1, note: "medium rare" }] },
-              { id: "k8", order_number: "#0146", table_name: "Table 9", timer: "7:30", status: "preparing", items: [{ name: "Salmon Teriyaki", quantity: 1 }] },
-              { id: "k9", order_number: "#0147", table_name: "Table 14", timer: "5:10", status: "preparing", items: [{ name: "Pasta Bologna", quantity: 2, note: "extra cheese" }] },
-
-              // READY TO SERVE (3)
-              { id: "k10", order_number: "#0137", table_name: "Table 1", timer: "1:05", status: "ready", items: [{ name: "Pasta Bologna", quantity: 2 }] },
-              { id: "k11", order_number: "#0138", table_name: "Table 6", timer: "2:20", status: "ready", items: [{ name: "Fish and Chips", quantity: 1 }] },
-              { id: "k12", order_number: "#0148", table_name: "Table 11", timer: "3:15", status: "ready", items: [{ name: "Grilled Steak", quantity: 1, note: "medium rare" }] },
-            ]);
-          }
+        if (rSnap.empty) {
+          setOrders([]);
           setIsLoading(false);
-        });
+          return;
+        }
 
-        return () => unsub();
+        const rDoc = rSnap.docs[0];
+        setRestaurantName(rDoc.data().name || "Your restaurant");
+
+        // Kitchen tickets for this restaurant only
+        ordersListenerRef.current = onSnapshot(
+          query(collection(db, "kitchen_orders"), where("restaurant_id", "==", rDoc.id)),
+          (snap) => {
+            const list: KitchenOrder[] = snap.docs.map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                order_number: data.order_number || `#${d.id.slice(0, 4)}`,
+                table_name: data.table_name || "",
+                timer: data.timer || "",
+                items: data.items || [],
+                status: data.status || "new",
+                is_urgent: data.is_urgent || false,
+              };
+            });
+
+            setOrders(list);
+            setIsLoading(false);
+          },
+          (err) => {
+            console.error("KDS listener error:", err);
+            setIsLoading(false);
+          }
+        );
       } catch (err) {
         console.error("KDS load error:", err);
         setIsLoading(false);
@@ -130,6 +139,7 @@ export default function KitchenDisplaySystemPage() {
     return () => {
       clearInterval(timerInterval);
       unsubscribe();
+      detachOrders();
     };
   }, [router]);
 
@@ -148,6 +158,11 @@ export default function KitchenDisplaySystemPage() {
     router.push("/login");
   }
 
+  // Tickets still moving through the kitchen right now
+  const activeOrderCount = orders.filter(
+    (o) => o.status === "new" || o.status === "preparing"
+  ).length;
+
   if (isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#050b12] text-white">
@@ -162,132 +177,7 @@ export default function KitchenDisplaySystemPage() {
   return (
     <main className="flex min-h-screen bg-[#050b12] text-white font-sans">
       {/* Sidebar matching KDS Mockup */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <LayoutDashboard size={18} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-2.5 text-xs font-bold text-white shadow-md shadow-orange-500/20"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="kitchen" />
 
       {/* Main Workspace Area matching KDS Mockup */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -295,7 +185,9 @@ export default function KitchenDisplaySystemPage() {
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-800 bg-[#07111f]/95 backdrop-blur-md px-8 py-5">
           <div>
             <h1 className="text-2xl font-black text-white">Kitchen Display</h1>
-            <p className="text-xs font-medium text-slate-400">12 active orders</p>
+            <p className="text-xs font-medium text-slate-400">
+              {activeOrderCount} active order{activeOrderCount === 1 ? "" : "s"}
+            </p>
           </div>
 
           <div className="flex items-center gap-6">
@@ -310,12 +202,7 @@ export default function KitchenDisplaySystemPage() {
               {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
 
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            
           </div>
         </header>
 

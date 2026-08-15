@@ -9,7 +9,7 @@ type RestaurantPreview = {
   name: string;
   type: string;
   location: string;
-  rating: number;
+  rating: number | null;
   price: string;
   status: string;
   image: string;
@@ -34,7 +34,7 @@ export default function HomePage() {
             name: data.name || "Restaurant",
             type: data.cuisine_type || "Restaurant",
             location: data.city || "Tashkent",
-            rating: data.rating || 4.8,
+            rating: typeof data.rating === "number" ? data.rating : null,
             price: data.price || "$$",
             status: data.is_open ? "Open" : "Closed",
             image:

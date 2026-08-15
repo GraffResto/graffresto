@@ -6,11 +6,11 @@ import {
   ChartLine,
   Clock,
   Compass,
-  Gift,
   Loader2,
   LogOut,
   MapPin,
   Percent,
+  UserRound,
   Utensils,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -56,7 +56,7 @@ const t = {
     title: "Explore",
     subtitle: "Discover restaurants nearby and active deals.",
     dashboard: "Dashboard", explore: "Explore", bookings: "My Bookings",
-    points: "Loyalty Points", logout: "Logout",
+    profile: "My Profile", logout: "Logout",
     nearbyTitle: "Restaurants in Tashkent",
     dealsTitle: "Active Deals & Discounts",
     noDeals: "No active promotions right now.",
@@ -69,7 +69,7 @@ const t = {
     title: "Kashf etish",
     subtitle: "Yaqin atrofdagi restoranlar va hozirgi aksiyalar.",
     dashboard: "Dashboard", explore: "Kashf etish", bookings: "Bronlarim",
-    points: "Loyalty Pointlar", logout: "Chiqish",
+    profile: "Profilim", logout: "Chiqish",
     nearbyTitle: "Toshkentdagi restoranlar",
     dealsTitle: "Faol aksiyalar va chegirmalar",
     noDeals: "Hozirda faol aksiyalar yo'q.",
@@ -82,7 +82,7 @@ const t = {
     title: "Исследовать",
     subtitle: "Рестораны рядом и актуальные акции.",
     dashboard: "Дэшборд", explore: "Исследовать", bookings: "Мои брони",
-    points: "Баллы лояльности", logout: "Выйти",
+    profile: "Мой профиль", logout: "Выйти",
     nearbyTitle: "Рестораны в Ташкенте",
     dealsTitle: "Активные акции и скидки",
     noDeals: "Активных акций пока нет.",
@@ -138,7 +138,7 @@ export default function UserExplorePage() {
             id: docSnap.id,
             title: data.title || "Special Offer",
             description: data.description || null,
-            discount_percent: data.discount_percent || 10,
+            discount_percent: Number(data.discount_percent) || 0,
             ends_at: data.ends_at || null,
             restaurant_id: data.restaurant_id || "",
             restaurant_name: data.restaurant_name || "Restaurant",
@@ -165,7 +165,7 @@ export default function UserExplorePage() {
     { label: text.dashboard, icon: ChartLine, href: "/user" },
     { label: text.explore, icon: Compass, href: "/user/explore", active: true },
     { label: text.bookings, icon: CalendarDays, href: "/user/bookings" },
-    { label: text.points, icon: Gift, href: "/user/loyalty" },
+    { label: text.profile, icon: UserRound, href: "/user/profile" },
   ];
 
   return (
@@ -229,9 +229,11 @@ export default function UserExplorePage() {
                           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100">
                             <Percent size={18} className="text-orange-600" />
                           </div>
-                          <span className="rounded-full bg-orange-500 px-3 py-1 text-sm font-black text-white">
-                            {promo.discount_percent}% {text.off}
-                          </span>
+                          {promo.discount_percent > 0 && (
+                            <span className="rounded-full bg-orange-500 px-3 py-1 text-sm font-black text-white">
+                              {promo.discount_percent}% {text.off}
+                            </span>
+                          )}
                         </div>
                         <p className="font-black text-gray-950">{promo.title}</p>
                         <p className="mt-1 text-sm font-bold text-orange-600">{promo.restaurant_name}</p>

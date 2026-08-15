@@ -21,7 +21,7 @@ type RestaurantPreview = {
   name: string;
   type: string;
   location: string;
-  rating: number;
+  rating: number | null;
   price: string;
   status: string;
   image: string;

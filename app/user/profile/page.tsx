@@ -24,7 +24,11 @@ import {
   auth,
   db,
   doc,
-  updateDoc,
+  setDoc,
+  collection,
+  query,
+  where,
+  getDocs,
   onAuthStateChanged,
   signOut,
   getUserProfile,
@@ -44,13 +48,13 @@ export default function CustomerProfilePage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [city, setCity] = useState("Tashkent");
+  const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
 
-  // Loyalty & Stats
-  const [points, setPoints] = useState(120);
-  const [tier, setTier] = useState("Bronze");
-  const [docId, setDocId] = useState("");
+  // Real booking counts, used instead of invented loyalty points
+  const [totalBookings, setTotalBookings] = useState(0);
+  const [completedBookings, setCompletedBookings] = useState(0);
+
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
@@ -67,12 +71,22 @@ export default function CustomerProfilePage() {
       try {
         const profile = await getUserProfile(user.uid);
         if (profile) {
-          setFullName(profile.full_name || user.displayName || "Customer");
+          setFullName(profile.full_name || user.displayName || "");
           setPhone(profile.phone || "");
-          setDocId((profile as any).id || user.uid);
+          // These were saved but never read back, so edits looked lost
+          setCity((profile as { city?: string }).city || "");
+          setAddress((profile as { address?: string }).address || "");
         } else {
-          setFullName(user.displayName || "Customer");
+          setFullName(user.displayName || "");
         }
+
+        const bSnap = await getDocs(
+          query(collection(db, "bookings"), where("customer_id", "==", user.uid))
+        );
+        setTotalBookings(bSnap.size);
+        setCompletedBookings(
+          bSnap.docs.filter((d) => d.data().status === "completed").length
+        );
       } catch (err) {
         console.error("Error loading customer profile:", err);
       } finally {
@@ -86,17 +100,28 @@ export default function CustomerProfilePage() {
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
+
+    if (!uid) {
+      setMessageType("error");
+      setMessage("Your session expired. Please sign in again.");
+      return;
+    }
+
     setSaving(true);
 
     try {
-      if (docId) {
-        await updateDoc(doc(db, "profiles", docId), {
-          full_name: fullName,
-          phone,
-          city,
-          address,
-        });
-      }
+      // The profile document id is the uid, so this always targets the right doc
+      await setDoc(
+        doc(db, "profiles", uid),
+        {
+          full_name: fullName.trim(),
+          phone: phone.trim(),
+          city: city.trim(),
+          address: address.trim(),
+        },
+        { merge: true }
+      );
+
       setMessageType("success");
       setMessage("Profile updated successfully!");
     } catch (err: any) {
@@ -172,11 +197,11 @@ export default function CustomerProfilePage() {
         <div className="rounded-[2.5rem] bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 p-8 text-white shadow-xl shadow-orange-500/10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
             <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/20 text-white font-black text-3xl shadow-inner border border-white/30 backdrop-blur-md">
-              {fullName.charAt(0) || "C"}
+              {fullName.charAt(0).toUpperCase() || "C"}
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-black">{fullName}</h1>
+                <h1 className="text-2xl font-black">{fullName || "Customer"}</h1>
                 <span className="rounded-full bg-white/20 px-3 py-0.5 text-xs font-black uppercase text-amber-200 border border-white/30">
                   Customer
                 </span>
@@ -189,8 +214,12 @@ export default function CustomerProfilePage() {
           <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-md border border-white/20 flex items-center gap-4">
             <Award size={32} className="text-amber-300" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-orange-200">Loyalty Tier</p>
-              <p className="text-lg font-black text-white">{tier} Member ({points} pts)</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-orange-200">
+                Your bookings
+              </p>
+              <p className="text-lg font-black text-white">
+                {totalBookings} total · {completedBookings} completed
+              </p>
             </div>
           </div>
         </div>

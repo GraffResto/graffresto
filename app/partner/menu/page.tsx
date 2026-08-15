@@ -30,10 +30,12 @@ import {
   Users,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
+import PartnerHeaderActions from "@/components/PartnerHeaderActions";
 import {
   auth,
   db,
@@ -66,7 +68,10 @@ export default function MenuManagementPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [restaurantName, setRestaurantName] = useState("");
+
+  // Held in a ref because the async auth callback cannot return a cleanup
+  const dishesListenerRef = useRef<(() => void) | null>(null);
 
   // Category State
   const [activeCategory, setActiveCategory] = useState("Lunch");
@@ -86,7 +91,14 @@ export default function MenuManagementPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
+    const detachDishes = () => {
+      dishesListenerRef.current?.();
+      dishesListenerRef.current = null;
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachDishes();
+
       if (!user) {
         router.push("/login");
         return;
@@ -96,51 +108,51 @@ export default function MenuManagementPage() {
         const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
         const rSnap = await getDocs(rQuery);
 
-        if (!rSnap.empty) {
-          const rDoc = rSnap.docs[0];
-          setRestaurantId(rDoc.id);
-          setRestaurantName(rDoc.data().name || "Afsona Restaurant");
+        if (rSnap.empty) {
+          setDishes([]);
+          setIsLoading(false);
+          return;
         }
 
-        // Real-time Firestore Listeners
-        const unsub = onSnapshot(collection(db, "dishes"), (snap) => {
-          const list: DishItem[] = snap.docs.map((d) => ({
-            id: d.id,
-            name: d.data().name || "Dish",
-            category: d.data().category || "Lunch",
-            price: Number(d.data().price) || 12.5,
-            description: d.data().description || "",
-            image_url: d.data().image_url || "https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=800",
-            is_available: d.data().is_available !== false,
-          }));
+        const rDoc = rSnap.docs[0];
+        setRestaurantId(rDoc.id);
+        setRestaurantName(rDoc.data().name || "Your restaurant");
 
-          if (list.length > 0) {
+        // Real-time dishes for this restaurant only
+        dishesListenerRef.current = onSnapshot(
+          query(collection(db, "dishes"), where("restaurant_id", "==", rDoc.id)),
+          (snap) => {
+            const list: DishItem[] = snap.docs.map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                name: data.name || "Dish",
+                category: data.category || "Lunch",
+                price: Number(data.price) || 0,
+                description: data.description || "",
+                image_url: data.image_url || "",
+                is_available: data.is_available !== false,
+              };
+            });
+
             setDishes(list);
-          } else {
-            // Mock dataset matching Mockup 3
-            setDishes([
-              { id: "d1", name: "Pasta Bologna", category: "Lunch", price: 12.5, description: "Classic pasta with rich bolognese sauce and parmesan.", image_url: "https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=800", is_available: true },
-              { id: "d2", name: "Spicy Fried Chicken", category: "Lunch", price: 10.9, description: "Crispy fried chicken with house spicy sauce.", image_url: "https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?q=80&w=800", is_available: true },
-              { id: "d3", name: "Grilled Steak", category: "Lunch", price: 18.0, description: "Premium grilled steak with seasonal vegetables.", image_url: "https://images.unsplash.com/photo-1544025162-d76694265947?q=80&w=800", is_available: true },
-              { id: "d4", name: "Fish And Chips", category: "Lunch", price: 14.5, description: "Crispy fish fillet with fries and tartar sauce.", image_url: "https://images.unsplash.com/photo-1579208030886-b937da0925dc?q=80&w=800", is_available: false },
-              { id: "d5", name: "Beef Bourguignon", category: "Lunch", price: 16.8, description: "Slow-cooked beef in red wine with vegetables.", image_url: "https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?q=80&w=800", is_available: true },
-              { id: "d6", name: "Spaghetti Carbonara", category: "Lunch", price: 11.2, description: "Creamy spaghetti with egg, cheese and pancetta.", image_url: "https://images.unsplash.com/photo-1612874742237-6526221588e3?q=80&w=800", is_available: true },
-              { id: "d7", name: "Ratatouille", category: "Lunch", price: 9.5, description: "French-style stewed vegetables with herbs.", image_url: "https://images.unsplash.com/photo-1572449043416-55f4685c9bb7?q=80&w=800", is_available: true },
-              { id: "d8", name: "Kimchi Jjigae", category: "Lunch", price: 10.9, description: "Korean kimchi stew with tofu and pork.", image_url: "https://images.unsplash.com/photo-1583032015879-e502275d0f62?q=80&w=800", is_available: false },
-              { id: "d9", name: "Tofu Scramble", category: "Lunch", price: 8.9, description: "Tofu scramble with veggies and sourdough.", image_url: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=800", is_available: true },
-            ]);
+            setIsLoading(false);
+          },
+          (err) => {
+            console.error("Menu listener error:", err);
+            setIsLoading(false);
           }
-          setIsLoading(false);
-        });
-
-        return () => unsub();
+        );
       } catch (err) {
         console.error("Menu load error:", err);
         setIsLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      detachDishes();
+    };
   }, [router]);
 
   async function handleToggleAvailable(id: string, currentStatus: boolean) {
@@ -224,16 +236,20 @@ export default function MenuManagementPage() {
     router.push("/login");
   }
 
+  // Counts come from the real menu, not from fixed placeholders
   const categoriesList = [
-    { name: "Breakfast", count: 6 },
-    { name: "Lunch", count: 8 },
-    { name: "Dinner", count: 7 },
-    { name: "Soup", count: 4 },
-    { name: "Desserts", count: 5 },
-    { name: "Side Dish", count: 6 },
-    { name: "Appetizer", count: 5 },
-    { name: "Beverages", count: 7 },
-  ];
+    "Breakfast",
+    "Lunch",
+    "Dinner",
+    "Soup",
+    "Desserts",
+    "Side Dish",
+    "Appetizer",
+    "Beverages",
+  ].map((name) => ({
+    name,
+    count: dishes.filter((d) => d.category === name).length,
+  }));
 
   const filteredDishes = dishes.filter((d) => {
     const matchesCat = activeCategory ? d.category === activeCategory : true;
@@ -255,138 +271,7 @@ export default function MenuManagementPage() {
   return (
     <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
       {/* Sidebar matching Mockup 3 */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <LayoutDashboard size={18} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl bg-orange-500 px-3.5 py-3 text-white font-bold shadow-md shadow-orange-500/20"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-            <Link
-              href="/partner/staff"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <User size={16} /> Staff
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="menu" />
 
       {/* Main Workspace Area matching Mockup 3 */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -410,22 +295,9 @@ export default function MenuManagementPage() {
             </div>
 
             <LanguageSwitcher />
+            <PartnerHeaderActions />
 
-            <div className="relative">
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                <Bell size={18} />
-              </button>
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                3
-              </span>
-            </div>
-
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            
           </div>
         </header>
 

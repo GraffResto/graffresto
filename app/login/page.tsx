@@ -1,17 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, Loader2, Mail, User, Utensils } from "lucide-react";
+import { Building2, Loader2, User, Utensils } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   auth,
-  db,
-  collection,
-  addDoc,
-  query,
-  where,
-  getDocs,
   googleProvider,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -21,6 +15,7 @@ import {
   formatAuthError,
 } from "@/lib/firebase";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import FirebaseConfigNotice from "@/components/FirebaseConfigNotice";
 import { useLanguage } from "@/components/LanguageProvider";
 
 const loginText = {
@@ -104,9 +99,6 @@ export default function LoginPage() {
   const [resetMessage, setResetMessage] = useState("");
   const [resetSuccess, setResetSuccess] = useState(false);
   const [isResetLoading, setIsResetLoading] = useState(false);
-  const [resetCode, setResetCode] = useState("");
-  const [newPasswordInput, setNewPasswordInput] = useState("");
-  const [inputCode, setInputCode] = useState("");
 
   async function handleDirectResetPassword() {
     setResetMessage("");
@@ -122,37 +114,35 @@ export default function LoginPage() {
 
     setIsResetLoading(true);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
       const actionCodeSettings = {
         url: `${origin}/login`,
-        handleCodeInApp: true,
+        handleCodeInApp: false,
       };
 
-      // 1. Trigger Firebase Auth official email reset with redirect URL
-      try {
-        await sendPasswordResetEmail(auth, targetEmail, actionCodeSettings);
-      } catch (emailErr) {
-        console.warn("Standard Firebase reset email warning:", emailErr);
-      }
+      // Firebase sends the reset link itself. The link is the only credential:
+      // never mint a reset code in the browser or store one in Firestore.
+      await sendPasswordResetEmail(auth, targetEmail, actionCodeSettings);
 
-      // 2. Generate 6-digit reset code saved in Firestore for instant fallback
-      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-      await addDoc(collection(db, "password_resets"), {
-        email: targetEmail,
-        code: generatedCode,
-        used: false,
-        created_at: new Date().toISOString(),
-      });
-
-      setResetCode(generatedCode);
       setResetSuccess(true);
       setResetEmail(targetEmail);
-      setResetMessage(`Password reset link and 6-digit Security Code sent for ${targetEmail}! Check your inbox/spam or use code below.`);
+      setResetMessage(
+        `If ${targetEmail} belongs to a DineFlow account, a password reset link is on its way. Check your inbox and spam folder.`
+      );
       setShowResetModal(true);
     } catch (err: any) {
       console.error("Password reset error:", err);
-      setResetSuccess(false);
-      setResetMessage(formatAuthError(err, "Failed to send reset email. Verify your email address."));
+
+      // Do not confirm whether an address is registered — that leaks accounts.
+      if (err?.code === "auth/user-not-found") {
+        setResetSuccess(true);
+        setResetMessage(
+          `If ${targetEmail} belongs to a DineFlow account, a password reset link is on its way. Check your inbox and spam folder.`
+        );
+      } else {
+        setResetSuccess(false);
+        setResetMessage(formatAuthError(err, "Failed to send reset email. Verify your email address."));
+      }
       setShowResetModal(true);
     } finally {
       setIsResetLoading(false);
@@ -274,6 +264,8 @@ export default function LoginPage() {
           </div>
 
           <form className="mt-6 space-y-5 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+            <FirebaseConfigNotice />
+
             <div>
               <label className="mb-2 block text-sm font-bold text-gray-700">
                 {text.emailLabel}
@@ -392,20 +384,6 @@ export default function LoginPage() {
               Enter your account email address below to receive an official password reset link.
             </p>
 
-            {resetCode && (
-              <div className="flex items-center gap-2 rounded-2xl bg-orange-50 p-4 border border-orange-200">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500 text-white font-bold">
-                  ✓
-                </span>
-                <div>
-                  <p className="text-xs font-black text-gray-900">Security Reset Code Sent</p>
-                  <p className="text-xs font-mono font-bold text-orange-600">
-                    Verification Code: <span className="text-sm tracking-widest">{resetCode}</span>
-                  </p>
-                </div>
-              </div>
-            )}
-
             <form onSubmit={handleSendResetEmail} className="space-y-4">
               <div>
                 <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
@@ -447,7 +425,7 @@ export default function LoginPage() {
                   className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-sm font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50"
                 >
                   {isResetLoading && <Loader2 className="animate-spin" size={16} />}
-                  {isResetLoading ? "Sending..." : "Resend Link & Code"}
+                  {isResetLoading ? "Sending..." : "Resend reset link"}
                 </button>
               </div>
             </form>

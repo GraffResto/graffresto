@@ -6,7 +6,8 @@ type RestaurantCardProps = {
   name: string;
   type: string;
   location: string;
-  rating?: number;
+  /** Omitted when the restaurant has no ratings yet — never invent one. */
+  rating?: number | null;
   price?: string;
   status: string;
   image: string;
@@ -18,7 +19,7 @@ export default function RestaurantCard({
   name,
   type,
   location,
-  rating = 4.8,
+  rating,
   price = "$$",
   status,
   image,
@@ -55,10 +56,14 @@ export default function RestaurantCard({
         </div>
 
         <div className="mt-5 flex items-center justify-between">
-          <p className="flex items-center gap-1 text-sm font-bold text-gray-800">
-            <Star size={16} className="fill-orange-400 text-orange-400" />
-            {rating}
-          </p>
+          {rating ? (
+            <p className="flex items-center gap-1 text-sm font-bold text-gray-800">
+              <Star size={16} className="fill-orange-400 text-orange-400" />
+              {rating.toFixed(1)}
+            </p>
+          ) : (
+            <p className="text-xs font-bold text-gray-400">No ratings yet</p>
+          )}
 
           <Link
             href={actionHref}

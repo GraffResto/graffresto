@@ -1,0 +1,192 @@
+rules_version = '2';
+
+// DineFlow — Cloud Firestore security rules.
+//
+// The web app is a pure client-side Firebase app, so every check written in
+// React can be skipped by anyone talking to the Firestore REST API directly.
+// These rules are the real access control; the UI checks are only convenience.
+//
+// Deploy with:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/profiles/$(request.auth.uid))
+        && profile().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    // True when the signed-in user owns the given restaurant document.
+    function ownsRestaurant(restaurantId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/restaurants/$(restaurantId))
+        && get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.owner_id == request.auth.uid;
+    }
+
+    // Ownership of the restaurant referenced by the document being written.
+    function ownsIncomingRestaurant() {
+      return ownsRestaurant(request.resource.data.restaurant_id);
+    }
+
+    function ownsExistingRestaurant() {
+      return ownsRestaurant(resource.data.restaurant_id);
+    }
+
+    // ---------- profiles ----------
+    // A user may read and write only their own profile. Role and partner
+    // status are admin-only, which stops a customer from promoting itself.
+    match /profiles/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+
+      allow create: if isSelf(uid)
+        && request.resource.data.role in ['customer', 'partner']
+        && (!('partner_status' in request.resource.data)
+            || request.resource.data.partner_status == 'pending');
+
+      allow update: if isAdmin()
+        || (isSelf(uid)
+            && request.resource.data.role == resource.data.role
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['role', 'partner_status']));
+
+      allow delete: if isAdmin();
+    }
+
+    // Legacy mirror of profiles kept by the registration screens.
+    match /users/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow write: if isSelf(uid) && request.resource.data.role in ['customer', 'partner'];
+    }
+
+    match /partners/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow create: if isSelf(uid) && request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- restaurants ----------
+    // Approved restaurants are public (the landing page lists them signed out).
+    // Owners see and edit their own; only admins change approval_status.
+    match /restaurants/{restaurantId} {
+      allow read: if resource.data.approval_status == 'approved'
+        || isAdmin()
+        || (isSignedIn() && resource.data.owner_id == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && request.resource.data.owner_id == request.auth.uid
+        && request.resource.data.approval_status == 'pending';
+
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.owner_id == request.auth.uid
+            && request.resource.data.owner_id == request.auth.uid
+            && request.resource.data.approval_status == resource.data.approval_status);
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- tables & menu ----------
+    // Publicly readable so guests can pick a table; writable by the owner only.
+    match /tables/{tableId} {
+      allow read: if true;
+      allow create: if ownsIncomingRestaurant();
+      allow update, delete: if ownsExistingRestaurant() || isAdmin();
+    }
+
+    match /menu_items/{itemId} {
+      allow read: if true;
+      allow create: if ownsIncomingRestaurant();
+      allow update, delete: if ownsExistingRestaurant() || isAdmin();
+    }
+
+    match /dishes/{dishId} {
+      allow read: if true;
+      allow create: if ownsIncomingRestaurant();
+      allow update, delete: if ownsExistingRestaurant() || isAdmin();
+    }
+
+    match /promotions/{promoId} {
+      allow read: if true;
+      allow create: if ownsIncomingRestaurant();
+      allow update, delete: if ownsExistingRestaurant() || isAdmin();
+    }
+
+    // ---------- bookings ----------
+    // A booking is visible to the guest who made it and the restaurant that
+    // received it — never to other customers or other restaurants.
+    match /bookings/{bookingId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.customer_id == request.auth.uid)
+        || ownsExistingRestaurant();
+
+      allow create: if (isSignedIn()
+          && request.resource.data.customer_id == request.auth.uid
+          && request.resource.data.status == 'pending')
+        || ownsIncomingRestaurant();
+
+      // Guests may cancel; the restaurant may move the booking through its
+      // lifecycle. Neither side can reassign the booking to someone else.
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.customer_id == request.auth.uid
+            && request.resource.data.customer_id == resource.data.customer_id
+            && request.resource.data.status == 'cancelled')
+        || ownsExistingRestaurant();
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- restaurant-internal operations ----------
+    // Staff rosters, stock, kitchen tickets and CRM notes are private to the
+    // restaurant they belong to.
+    match /staff/{staffId} {
+      allow read, update, delete: if ownsExistingRestaurant() || isAdmin();
+      allow create: if ownsIncomingRestaurant();
+    }
+
+    match /inventory/{itemId} {
+      allow read, update, delete: if ownsExistingRestaurant() || isAdmin();
+      allow create: if ownsIncomingRestaurant();
+    }
+
+    match /kitchen_orders/{orderId} {
+      allow read, update, delete: if ownsExistingRestaurant() || isAdmin();
+      allow create: if ownsIncomingRestaurant();
+    }
+
+    match /customers_crm/{recordId} {
+      allow read, update, delete: if ownsExistingRestaurant() || isAdmin();
+      allow create: if ownsIncomingRestaurant();
+    }
+
+    // ---------- platform staff ----------
+    match /platform_staff/{staffId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- deny by default ----------
+    // Anything not matched above — including the retired password_resets and
+    // email_verifications collections — is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

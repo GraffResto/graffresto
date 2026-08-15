@@ -28,10 +28,12 @@ import {
   Users,
   User,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import PartnerSidebar from "@/components/PartnerSidebar";
+import PartnerHeaderActions from "@/components/PartnerHeaderActions";
 import {
   auth,
   db,
@@ -68,7 +70,10 @@ export default function BookingsManagementPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [restaurantName, setRestaurantName] = useState("Afsona Restaurant");
+  const [restaurantName, setRestaurantName] = useState("");
+
+  // Held in a ref because the async auth callback cannot return a cleanup
+  const bookingsListenerRef = useRef<(() => void) | null>(null);
 
   const [activeTab, setActiveTab] = useState<"all" | "pending" | "approved" | "completed" | "cancelled">("all");
   const [viewMode, setViewMode] = useState<"list" | "timeline">("list");
@@ -88,7 +93,14 @@ export default function BookingsManagementPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    const detachBookings = () => {
+      bookingsListenerRef.current?.();
+      bookingsListenerRef.current = null;
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      detachBookings();
+
       if (!user) {
         router.push("/login");
         return;
@@ -98,53 +110,55 @@ export default function BookingsManagementPage() {
         const rQuery = query(collection(db, "restaurants"), where("owner_id", "==", user.uid));
         const rSnap = await getDocs(rQuery);
 
-        if (!rSnap.empty) {
-          const rDoc = rSnap.docs[0];
-          setRestaurantId(rDoc.id);
-          setRestaurantName(rDoc.data().name || "Afsona Restaurant");
+        if (rSnap.empty) {
+          setBookings([]);
+          setIsLoading(false);
+          return;
         }
 
-        // Real-time Firestore Listeners
-        const unsub = onSnapshot(collection(db, "bookings"), (snap) => {
-          const list: Booking[] = snap.docs.map((d) => ({
-            id: d.id,
-            customer_name: d.data().customer_name || "Guest",
-            customer_phone: d.data().customer_phone || "+998 90 123 45 67",
-            booking_date: d.data().booking_date || "Today",
-            booking_time: d.data().booking_time || "12:00",
-            table_name: d.data().table_name || "Table 1",
-            guests_count: d.data().guests_count || 2,
-            occasion: d.data().occasion || "",
-            payment_status: d.data().payment_status || "paid",
-            status: d.data().status || "approved",
-            source: d.data().source || "Website",
-          }));
+        const rDoc = rSnap.docs[0];
+        setRestaurantId(rDoc.id);
+        setRestaurantName(rDoc.data().name || "Your restaurant");
 
-          if (list.length > 0) {
+        // Real-time bookings for this restaurant only
+        bookingsListenerRef.current = onSnapshot(
+          query(collection(db, "bookings"), where("restaurant_id", "==", rDoc.id)),
+          (snap) => {
+            const list: Booking[] = snap.docs.map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                customer_name: data.customer_name || "Guest",
+                customer_phone: data.customer_phone || "",
+                booking_date: data.booking_date || "",
+                booking_time: data.booking_time || "",
+                table_name: data.table_name || "",
+                guests_count: data.guests_count ?? 0,
+                occasion: data.occasion || "",
+                payment_status: data.payment_status || "not_paid",
+                status: data.status || "pending",
+                source: data.source || "Website",
+              };
+            });
+
             setBookings(list);
-          } else {
-            // Mock dataset matching Mockup 4
-            setBookings([
-              { id: "b1", customer_name: "Karimov Jasur", customer_phone: "+998 90 123 45 67", booking_date: "Today", booking_time: "12:00", table_name: "Table 5", guests_count: 4, occasion: "Birthday", payment_status: "paid", status: "approved" },
-              { id: "b2", customer_name: "Aliyeva Malika", customer_phone: "+998 91 234 56 78", booking_date: "Today", booking_time: "13:30", table_name: "Table 2", guests_count: 2, occasion: "", payment_status: "not_paid", status: "pending" },
-              { id: "b3", customer_name: "Raximov Bobur", customer_phone: "+998 93 345 67 89", booking_date: "Today", booking_time: "15:00", table_name: "Table 8", guests_count: 6, occasion: "Anniversary", payment_status: "paid", status: "approved" },
-              { id: "b4", customer_name: "Toshmatov Sarvar", customer_phone: "+998 94 456 78 90", booking_date: "Today", booking_time: "17:00", table_name: "Table 3", guests_count: 3, occasion: "", payment_status: "not_paid", status: "pending" },
-              { id: "b5", customer_name: "Yusupova Dilnoza", customer_phone: "+998 95 567 89 01", booking_date: "Tomorrow", booking_time: "19:00", table_name: "Table 10", guests_count: 8, occasion: "Business", payment_status: "paid", status: "approved" },
-              { id: "b6", customer_name: "Nazarov Eldor", customer_phone: "+998 97 678 90 12", booking_date: "Yesterday", booking_time: "20:30", table_name: "Table 1", guests_count: 2, occasion: "", payment_status: "paid", status: "completed" },
-              { id: "b7", customer_name: "Xolmatova Zarina", customer_phone: "+998 98 789 01 23", booking_date: "3 days ago", booking_time: "19:00", table_name: "Table 6", guests_count: 4, occasion: "", payment_status: "not_paid", status: "cancelled" },
-            ]);
+            setIsLoading(false);
+          },
+          (err) => {
+            console.error("Bookings listener error:", err);
+            setIsLoading(false);
           }
-          setIsLoading(false);
-        });
-
-        return () => unsub();
+        );
       } catch (err) {
         console.error("Bookings load error:", err);
         setIsLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      detachBookings();
+    };
   }, [router]);
 
   async function handleUpdateStatus(id: string, nextStatus: Booking["status"]) {
@@ -217,138 +231,7 @@ export default function BookingsManagementPage() {
   return (
     <main className="flex min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
       {/* Sidebar matching Mockup 4 */}
-      <aside className="w-64 border-r border-slate-800 bg-[#080e1a] text-white flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
-              <Utensils size={20} />
-            </div>
-            <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
-          </div>
-
-          <nav className="space-y-1 text-sm font-semibold">
-            <Link
-              href="/partner"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <LayoutDashboard size={18} />
-              <span>Dashboard</span>
-            </Link>
-
-            <Link
-              href="/partner/bookings"
-              className="flex items-center justify-between rounded-xl bg-orange-500 px-3.5 py-3 text-white font-bold shadow-md shadow-orange-500/20"
-            >
-              <div className="flex items-center gap-3">
-                <Calendar size={18} />
-                <span>Bookings</span>
-              </div>
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white">
-                3
-              </span>
-            </Link>
-
-            <Link
-              href="/partner/floor-plan"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Table size={18} />
-              <span>Floor Map</span>
-            </Link>
-
-            <Link
-              href="/partner/menu"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <UtensilsCrossed size={18} />
-              <span>Menu</span>
-            </Link>
-
-            <Link
-              href="/partner/analytics"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </Link>
-
-            <Link
-              href="/partner/crm"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Users size={18} />
-              <span>CRM</span>
-            </Link>
-
-            <Link
-              href="/partner/promotions"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-3 text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Gift size={18} />
-              <span>Promotions</span>
-            </Link>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-800 space-y-1">
-            <p className="px-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              ERP Modules
-            </p>
-            <Link
-              href="/partner/kitchen"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <ChefHat size={16} /> Kitchen
-            </Link>
-            <Link
-              href="/partner/inventory"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <Boxes size={16} /> Inventory
-            </Link>
-            <Link
-              href="/partner/finance"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <DollarSign size={16} /> Finance
-            </Link>
-            <Link
-              href="/partner/staff"
-              className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-            >
-              <User size={16} /> Staff
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-4 border-t border-slate-800">
-          <Link
-            href="/partner/settings"
-            className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <Settings size={16} /> Settings
-          </Link>
-
-          <Link
-            href="/partner/profile"
-            className="flex items-center gap-3 rounded-2xl bg-slate-900 border border-slate-800 p-3 hover:bg-slate-800/80 transition"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-orange-400 font-bold border border-slate-700">
-              <Store size={18} />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{restaurantName}</p>
-              <p className="text-[10px] text-slate-400">Restaurant Owner</p>
-            </div>
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-white transition"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+      <PartnerSidebar active="bookings" />
 
       {/* Main Workspace Area matching Mockup 4 */}
       <section className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -361,20 +244,8 @@ export default function BookingsManagementPage() {
 
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
-            <div className="relative">
-              <button className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                <Bell size={18} />
-              </button>
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-black text-white">
-                3
-              </span>
-            </div>
-            <Link
-              href="/partner/profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-black text-sm shadow-md shadow-orange-500/20 hover:scale-105 transition"
-            >
-              A
-            </Link>
+            <PartnerHeaderActions />
+            
           </div>
         </header>
 
