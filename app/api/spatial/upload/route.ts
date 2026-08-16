@@ -30,13 +30,15 @@ export async function POST(request: Request) {
       uploadedGlbUrl
     );
 
-    // Save to Firestore
+    // Save to Firestore target restaurant document
     try {
       const restRef = doc(db, "restaurants", restaurantId);
       const restSnap = await getDoc(restRef);
       if (restSnap.exists()) {
         await updateDoc(restRef, {
           spatial_model_url: modelUrl,
+          external_tour_embed_url: modelUrl,
+          media_type: telemetry?.mediaType || "external_embed",
           spatial_mesh_metadata_json: JSON.stringify(metadata),
           is_3d_active: true,
           is_3d_enabled: true,
@@ -52,12 +54,12 @@ export async function POST(request: Request) {
       restaurantId,
       spatialModelUrl: modelUrl,
       metadata,
-      message: "Spatial AI 3D reconstruction pipeline completed successfully.",
+      message: "3D Virtual Tour & Embedded Platform Ingestion completed successfully.",
     });
   } catch (err: any) {
-    console.error("Spatial Upload API Error:", err);
+    console.error("Spatial Ingestion API Error:", err);
     return NextResponse.json(
-      { error: err.message || "Failed to process spatial upload pipeline." },
+      { error: err.message || "Failed to process 3D spatial tour ingestion." },
       { status: 500 }
     );
   }
