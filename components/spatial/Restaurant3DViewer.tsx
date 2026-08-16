@@ -2,129 +2,191 @@
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Environment, Html, useGLTF } from "@react-three/drei";
+import { OrbitControls, Html } from "@react-three/drei";
 import * as THREE from "three";
-import { TableMeshController, SpatialTableNode, TableStatus } from "./TableMeshController";
+import { TableStatus } from "./TableMeshController";
 import BookingModal from "./BookingModal";
-import { Sparkles, Move3d, AlertCircle, Loader2 } from "lucide-react";
+import { Sparkles, Move3d, Loader2, CheckCircle2, ShieldAlert } from "lucide-react";
+
+export interface PanoramicTableHotspot {
+  id: string;
+  tableName: string;
+  seats: number;
+  status: TableStatus;
+  position: [number, number, number]; // Cartesian coordinates on 360 sphere
+}
 
 interface Restaurant3DViewerProps {
   restaurantId: string;
   restaurantName: string;
   spatialModelUrl?: string;
+  mediaUrl?: string;
 }
 
-const DEFAULT_REAL_MODEL_URL =
-  "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/SheenChair/glTF-Binary/SheenChair.glb";
+// Fallback high-resolution 360° equirectangular restaurant panorama asset
+const DEFAULT_360_PANORAMA =
+  "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=2048&auto=format&fit=crop";
 
 /**
- * R3F Real 3D GLB Model Container Component
- * Loads real GLB models via useGLTF, calculates BoundingBox, and traverses scene graph nodes.
+ * Inside-Out 360° Panoramic Sphere Component
+ * Supports real HTML5 Video Textures (.mp4, .mov, .webm) and Static Equirectangular Images (.jpg, .png).
  */
-function RealSpatialModel({
+function PanoramicSphere({
   url,
-  tableNodes,
-  onTableSelect,
-  onTableHover,
+  onLoaded,
 }: {
   url: string;
-  tableNodes: SpatialTableNode[];
-  onTableSelect: (node: SpatialTableNode) => void;
-  onTableHover: (name: string | null) => void;
+  onLoaded: () => void;
 }) {
-  const gltf = useGLTF(url);
-  const modelRef = useRef<THREE.Group>(null);
-  const { camera } = useThree();
-
-  const [interactiveMeshes, setInteractiveMeshes] = useState<THREE.Mesh[]>([]);
+  const meshRef = useRef<THREE.Mesh>(null);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
 
   useEffect(() => {
-    if (!gltf.scene) return;
+    let isMounted = true;
+    let videoElem: HTMLVideoElement | null = null;
+    let createdTexture: THREE.Texture | null = null;
 
-    // 1. Calculate BoundingBox auto-scaling & centering
-    const box = new THREE.Box3().setFromObject(gltf.scene);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
+    const isVideo = /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 
-    // Center the model at origin
-    gltf.scene.position.x = -center.x;
-    gltf.scene.position.y = -box.min.y;
-    gltf.scene.position.z = -center.z;
+    if (isVideo) {
+      videoElem = document.createElement("video");
+      videoElem.src = url;
+      videoElem.muted = true;
+      videoElem.loop = true;
+      videoElem.playsInline = true;
+      videoElem.crossOrigin = "anonymous";
+      videoElem.autoplay = true;
 
-    // Adjust camera framing based on bounding dimensions
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const cameraDistance = maxDim * 2.2;
-    camera.position.set(0, cameraDistance * 0.8, cameraDistance);
-    camera.lookAt(0, size.y * 0.5, 0);
+      const videoTex = new THREE.VideoTexture(videoElem);
+      videoTex.minFilter = THREE.LinearFilter;
+      videoTex.magFilter = THREE.LinearFilter;
+      videoTex.generateMipmaps = false;
+      videoTex.colorSpace = THREE.SRGBColorSpace;
 
-    // 2. Traversal Logic: Perform scene.traverse on the real GLB model
-    const discoveredMeshes: THREE.Mesh[] = [];
-    let tableCounter = 0;
+      createdTexture = videoTex;
 
-    gltf.scene.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-
-        // Pattern filter to detect table/seating mesh nodes
-        const isTable = /table|desk|booth|seat|chair|mesh|node/i.test(child.name);
-        if (isTable || tableCounter < tableNodes.length) {
-          child.userData.isTableNode = true;
-          const assignedNode = tableNodes[tableCounter % tableNodes.length];
-          child.userData.nodeData = assignedNode;
-
-          TableMeshController.applyStatusMaterial(child, assignedNode.status);
-          discoveredMeshes.push(child);
-          tableCounter++;
+      videoElem.play().then(() => {
+        if (isMounted) {
+          setTexture(videoTex);
+          onLoaded();
         }
-      }
-    });
+      }).catch(() => {
+        if (isMounted) {
+          setTexture(videoTex);
+          onLoaded();
+        }
+      });
+    } else {
+      const loader = new THREE.TextureLoader();
+      loader.load(
+        url,
+        (loadedTex) => {
+          if (!isMounted) return;
+          loadedTex.colorSpace = THREE.SRGBColorSpace;
+          loadedTex.minFilter = THREE.LinearFilter;
+          loadedTex.magFilter = THREE.LinearFilter;
+          createdTexture = loadedTex;
+          setTexture(loadedTex);
+          onLoaded();
+        },
+        undefined,
+        (err) => {
+          console.warn("Error loading 360 texture, using fallback panorama:", err);
+          loader.load(DEFAULT_360_PANORAMA, (fbTex) => {
+            if (!isMounted) return;
+            fbTex.colorSpace = THREE.SRGBColorSpace;
+            setTexture(fbTex);
+            onLoaded();
+          });
+        }
+      );
+    }
 
-    setInteractiveMeshes(discoveredMeshes);
-  }, [gltf.scene, camera, tableNodes]);
+    return () => {
+      isMounted = false;
+      if (videoElem) {
+        videoElem.pause();
+        videoElem.removeAttribute("src");
+        videoElem.load();
+      }
+      if (createdTexture) {
+        createdTexture.dispose();
+      }
+    };
+  }, [url, onLoaded]);
+
+  if (!texture) return null;
 
   return (
-    <group ref={modelRef}>
-      <primitive
-        object={gltf.scene}
-        onPointerOver={(e: any) => {
-          e.stopPropagation();
-          const mesh = e.object;
-          if (mesh?.userData?.nodeData) {
-            document.body.style.cursor = "pointer";
-            onTableHover(mesh.userData.nodeData.tableName);
-          }
-        }}
-        onPointerOut={() => {
-          document.body.style.cursor = "default";
-          onTableHover(null);
-        }}
-        onClick={(e: any) => {
-          e.stopPropagation();
-          const mesh = e.object;
-          if (mesh?.userData?.nodeData) {
-            const node: SpatialTableNode = mesh.userData.nodeData;
-            if (node.status === "available") {
-              onTableSelect(node);
-            }
-          }
-        }}
-      />
-    </group>
+    <mesh ref={meshRef} scale={[-1, 1, 1]}>
+      {/* High-density tessellation sphere for inside-out 360 projection */}
+      <sphereGeometry args={[50, 64, 64]} />
+      <meshBasicMaterial map={texture} side={THREE.BackSide} />
+    </mesh>
   );
 }
 
 /**
- * Fallback Loading Component rendered inside R3F Suspense
+ * 3D Floating HTML Hotspot Component
+ * Positioned in 3D Cartesian coordinates inside the 360° panorama scene.
  */
-function ReconstructionInProgress() {
+function FloatingHotspot({
+  hotspot,
+  onSelect,
+}: {
+  hotspot: PanoramicTableHotspot;
+  onSelect: (h: PanoramicTableHotspot) => void;
+}) {
+  const isAvailable = hotspot.status === "available";
+  const isOccupied = hotspot.status === "occupied";
+  const isPending = hotspot.status === "pending";
+
   return (
-    <Html center>
-      <div className="flex flex-col items-center justify-center rounded-3xl bg-[#09111e]/90 border border-orange-500/30 p-8 backdrop-blur-md text-white shadow-2xl text-center space-y-3 min-w-[280px]">
-        <Loader2 className="animate-spin text-orange-500" size={36} />
-        <div>
-          <h4 className="text-sm font-black text-white">Spatial Reconstruction In Progress</h4>
-          <p className="text-xs text-slate-400 mt-1">Downloading & rendering real GLB 3D Digital Twin...</p>
+    <Html position={hotspot.position} center distanceFactor={15}>
+      <div className="group relative flex flex-col items-center">
+        {/* Pulsing Radar Ring for Available Tables */}
+        {isAvailable && (
+          <span className="absolute -inset-2 rounded-full bg-emerald-500/40 animate-ping" />
+        )}
+
+        {/* Hotspot Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isAvailable) onSelect(hotspot);
+          }}
+          disabled={!isAvailable}
+          className={`relative flex h-11 w-11 items-center justify-center rounded-full border-2 text-white shadow-xl transition-all duration-300 transform group-hover:scale-125 ${
+            isAvailable
+              ? "border-emerald-400 bg-emerald-600/90 shadow-emerald-500/50 cursor-pointer"
+              : isOccupied
+              ? "border-rose-400 bg-rose-600/60 opacity-60 cursor-not-allowed"
+              : "border-amber-400 bg-amber-600/80 animate-pulse cursor-wait"
+          }`}
+        >
+          <Move3d size={18} />
+        </button>
+
+        {/* Hover Information Tooltip */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none absolute bottom-14 flex flex-col items-center min-w-[130px]">
+          <div className="rounded-xl bg-[#09111e]/95 border border-slate-700 px-3 py-2 text-center text-xs shadow-2xl backdrop-blur-md">
+            <p className="font-black text-white">{hotspot.tableName}</p>
+            <p className="text-[10px] text-slate-300">
+              {hotspot.seats} Seats •{" "}
+              <span
+                className={
+                  isAvailable
+                    ? "text-emerald-400 font-bold"
+                    : isOccupied
+                    ? "text-rose-400 font-bold"
+                    : "text-amber-400 font-bold"
+                }
+              >
+                {hotspot.status.toUpperCase()}
+              </span>
+            </p>
+          </div>
+          <div className="h-2 w-2 rotate-45 bg-[#09111e] border-r border-b border-slate-700 -mt-1" />
         </div>
       </div>
     </Html>
@@ -135,90 +197,101 @@ export default function Restaurant3DViewer({
   restaurantId,
   restaurantName,
   spatialModelUrl,
+  mediaUrl,
 }: Restaurant3DViewerProps) {
-  const [selectedTable, setSelectedTable] = useState<SpatialTableNode | null>(null);
+  const [selectedHotspot, setSelectedHotspot] = useState<PanoramicTableHotspot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [hoveredTableName, setHoveredTableName] = useState<string | null>(null);
-  const [resolvedModelUrl, setResolvedModelUrl] = useState<string>(DEFAULT_REAL_MODEL_URL);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  const [tableNodes, setTableNodes] = useState<SpatialTableNode[]>([
-    { nodeName: "Table_01", mappedTableId: "t1", tableName: "Table 1 (Window)", seats: 4, status: "available" },
-    { nodeName: "Table_02", mappedTableId: "t2", tableName: "Table 2 (Center)", seats: 4, status: "available" },
-    { nodeName: "Table_03", mappedTableId: "t3", tableName: "Table 3 (Booth)", seats: 4, status: "occupied" },
-    { nodeName: "Table_04", mappedTableId: "t4", tableName: "Table 4 (Couples)", seats: 2, status: "available" },
-    { nodeName: "Table_05", mappedTableId: "t5", tableName: "Table 5 (VIP)", seats: 8, status: "pending" },
-    { nodeName: "Table_06", mappedTableId: "t6", tableName: "Table 6 (Terrace)", seats: 6, status: "available" },
-    { nodeName: "Table_07", mappedTableId: "t7", tableName: "Table 7 (Bar Side)", seats: 4, status: "occupied" },
-    { nodeName: "Table_08", mappedTableId: "t8", tableName: "Table 8 (Garden View)", seats: 4, status: "available" },
+  // Active Media Source: mediaUrl > spatialModelUrl > local blob > default 360 panorama
+  const [activeMediaUrl, setActiveMediaUrl] = useState<string>(DEFAULT_360_PANORAMA);
+
+  // Dynamic 360° Table Hotspots Array mapped to 3D spherical positions
+  const [hotspots, setHotspots] = useState<PanoramicTableHotspot[]>([
+    { id: "h1", tableName: "Table 1 (Window View)", seats: 4, status: "available", position: [-12, 1, -16] },
+    { id: "h2", tableName: "Table 2 (Main Hall)", seats: 4, status: "available", position: [-4, 0, -18] },
+    { id: "h3", tableName: "Table 3 (Booth)", seats: 4, status: "occupied", position: [6, 1, -17] },
+    { id: "h4", tableName: "Table 4 (Couples Corner)", seats: 2, status: "available", position: [14, 0, -12] },
+    { id: "h5", tableName: "Table 5 (VIP Lounge)", seats: 8, status: "pending", position: [-16, 2, 8] },
+    { id: "h6", tableName: "Table 6 (Garden View)", seats: 6, status: "available", position: [16, 1, 6] },
+    { id: "h7", tableName: "Table 7 (Bar Counter)", seats: 2, status: "occupied", position: [0, -2, -19] },
+    { id: "h8", tableName: "Table 8 (Terrace)", seats: 4, status: "available", position: [-8, 2, 15] },
   ]);
 
   useEffect(() => {
-    // Resolve model URL: local blob URL > spatialModelUrl (if valid) > default real GLB
     const localBlob = typeof window !== "undefined" ? localStorage.getItem("last_uploaded_3d_glb") : null;
-    if (localBlob) {
-      setResolvedModelUrl(localBlob);
-    } else if (spatialModelUrl && !spatialModelUrl.includes("storage.googleapis.com")) {
-      setResolvedModelUrl(spatialModelUrl);
+    const targetUrl = mediaUrl || spatialModelUrl || localBlob || DEFAULT_360_PANORAMA;
+
+    if (targetUrl && !targetUrl.includes("storage.googleapis.com")) {
+      setActiveMediaUrl(targetUrl);
     } else {
-      setResolvedModelUrl(DEFAULT_REAL_MODEL_URL);
+      setActiveMediaUrl(DEFAULT_360_PANORAMA);
     }
-  }, [spatialModelUrl]);
+  }, [mediaUrl, spatialModelUrl]);
 
   return (
     <div className="relative w-full h-[580px] rounded-[2.5rem] overflow-hidden border border-slate-800 bg-[#060c14] shadow-2xl">
-      {/* R3F WebGL Canvas */}
+      {/* Glassmorphism Loading State Overlay */}
+      {!isLoaded && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#060c14]/90 backdrop-blur-md text-white space-y-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-orange-500/10 text-orange-400 border border-orange-500/20 shadow-xl">
+            <Loader2 className="animate-spin" size={32} />
+          </div>
+          <div className="text-center space-y-1">
+            <h4 className="text-base font-black text-white">Rendering 360° Spatial Panorama...</h4>
+            <p className="text-xs text-slate-400">Loading inside-out spherical digital twin projection</p>
+          </div>
+        </div>
+      )}
+
+      {/* R3F 360° Panoramic Canvas */}
       <Canvas
-        camera={{ position: [0, 8, 14], fov: 45 }}
-        dpr={[1, 2]}
-        shadows
+        camera={{ position: [0, 0, 0.1], fov: 65 }}
         className="w-full h-full cursor-grab active:cursor-grabbing"
       >
-        <color attach="background" args={["#060c14"]} />
-        <ambientLight intensity={0.9} />
-        <directionalLight position={[10, 15, 10]} intensity={1.5} castShadow />
-
-        {/* Real HDRI Environment mapping for PBR metallic/roughness material reflection */}
-        <Environment preset="city" />
-
+        {/* Precision Inverted OrbitControls mimicking natural head rotation */}
         <OrbitControls
           makeDefault
-          maxPolarAngle={Math.PI / 2.15}
-          minDistance={2}
-          maxDistance={50}
+          enableZoom={true}
+          minDistance={0.05}
+          maxDistance={0.5}
+          enablePan={false}
+          enableDamping={true}
           dampingFactor={0.05}
+          rotateSpeed={-0.4}
         />
 
-        <Suspense fallback={<ReconstructionInProgress />}>
-          <RealSpatialModel
-            url={resolvedModelUrl}
-            tableNodes={tableNodes}
-            onTableSelect={(node) => {
-              setSelectedTable(node);
-              setIsModalOpen(true);
-            }}
-            onTableHover={(name) => setHoveredTableName(name)}
-          />
+        <Suspense fallback={null}>
+          <PanoramicSphere url={activeMediaUrl} onLoaded={() => setIsLoaded(true)} />
+
+          {/* Render Floating 3D HTML Hotspots */}
+          {hotspots.map((h) => (
+            <FloatingHotspot
+              key={h.id}
+              hotspot={h}
+              onSelect={(selected) => {
+                setSelectedHotspot(selected);
+                setIsModalOpen(true);
+              }}
+            />
+          ))}
         </Suspense>
       </Canvas>
 
-      {/* Top Floating Header Bar */}
+      {/* Top Floating Controls Header */}
       <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
-        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 p-3.5 backdrop-blur-md pointer-events-auto shadow-xl">
+        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 p-3.5 backdrop-blur-md pointer-events-auto shadow-2xl">
           <Sparkles className="text-orange-500" size={20} />
           <div>
-            <h4 className="text-xs font-black text-white">{restaurantName} 3D Spatial Digital Twin</h4>
+            <h4 className="text-xs font-black text-white">{restaurantName} 360° Digital Twin</h4>
             <p className="text-[11px] text-slate-400 font-medium">
-              {hoveredTableName ? (
-                <span className="text-orange-400 font-bold">Selected: {hoveredTableName}</span>
-              ) : (
-                "Real GLB Model • Orbit & Click table node to reserve"
-              )}
+              Rotate 360° • Click floating radar hotspot to reserve
             </p>
           </div>
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 px-4 py-2.5 text-[11px] font-bold text-white backdrop-blur-md pointer-events-auto shadow-xl">
+        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 px-4 py-2.5 text-[11px] font-bold text-white backdrop-blur-md pointer-events-auto shadow-2xl">
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-[#10B981]" /> Available
           </span>
@@ -231,31 +304,29 @@ export default function Restaurant3DViewer({
         </div>
       </div>
 
-      {/* Bottom Floating Hint */}
+      {/* Bottom Floating Navigation Hint */}
       <div className="absolute bottom-4 left-4 z-10 text-[10px] font-medium text-slate-400 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 backdrop-blur-md">
-        🖱 Left click + drag to rotate • Scroll to zoom • Right click to pan
+        🖱 Left click + drag to look around 360° • Scroll to zoom
       </div>
 
       {/* Reservation Bottom Sheet Modal */}
-      {selectedTable && (
+      {selectedHotspot && (
         <BookingModal
           isOpen={isModalOpen}
           onClose={() => {
             setIsModalOpen(false);
-            setSelectedTable(null);
+            setSelectedHotspot(null);
           }}
           restaurantId={restaurantId}
-          tableName={selectedTable.tableName}
-          seats={selectedTable.seats}
+          tableName={selectedHotspot.tableName}
+          seats={selectedHotspot.seats}
           onSuccess={(booking) => {
-            setTableNodes((prev) =>
-              prev.map((t) =>
-                t.nodeName === selectedTable.nodeName
-                  ? { ...t, status: "occupied" }
-                  : t
+            setHotspots((prev) =>
+              prev.map((h) =>
+                h.id === selectedHotspot.id ? { ...h, status: "occupied" } : h
               )
             );
-            alert(`Table ${selectedTable.tableName} reserved successfully! Booking ID: ${booking.bookingId}`);
+            alert(`Table ${selectedHotspot.tableName} reserved successfully! Booking ID: ${booking.bookingId}`);
           }}
         />
       )}
