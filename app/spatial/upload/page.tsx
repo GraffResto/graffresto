@@ -2,11 +2,24 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { UploadCloud, Video, Sparkles, CheckCircle2, ShieldCheck, ArrowLeft, Loader2, Cpu } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  UploadCloud,
+  Image as ImageIcon,
+  Sparkles,
+  CheckCircle2,
+  ShieldCheck,
+  ArrowLeft,
+  Loader2,
+  Eye,
+  Camera,
+} from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 export default function SpatialUploadPortalPage() {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadResult, setUploadResult] = useState<any>(null);
@@ -14,40 +27,45 @@ export default function SpatialUploadPortalPage() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      setErrorMsg(null);
+
+      if (file.type.startsWith("image/")) {
+        const objectUrl = URL.createObjectURL(file);
+        setPreviewUrl(objectUrl);
+      } else {
+        setPreviewUrl(null);
+      }
     }
   }
 
   async function handleStartUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedFile) {
-      setErrorMsg("Please select a video file or 3D mesh asset.");
+      setErrorMsg("Please select a 360° equirectangular photo or video stream.");
       return;
     }
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setUploadProgress(20);
     setErrorMsg(null);
 
     try {
-      // If user uploaded a .glb or .gltf model directly, create a local Blob URL
-      if (selectedFile.name.endsWith(".glb") || selectedFile.name.endsWith(".gltf")) {
-        const localBlobUrl = URL.createObjectURL(selectedFile);
-        localStorage.setItem("last_uploaded_3d_glb", localBlobUrl);
-      } else {
-        localStorage.removeItem("last_uploaded_3d_glb");
-      }
+      // Store local Blob URL for immediate client-side 360° rendering
+      const blobUrl = URL.createObjectURL(selectedFile);
+      localStorage.setItem("last_uploaded_3d_glb", blobUrl);
 
-      // Simulate chunked upload & call backend API /api/spatial/upload
+      // Simulate chunked upload progress
       const progressTimer = setInterval(() => {
         setUploadProgress((prev) => {
           if (prev >= 90) {
             clearInterval(progressTimer);
             return 90;
           }
-          return prev + 15;
+          return prev + 20;
         });
-      }, 400);
+      }, 300);
 
       const res = await fetch("/api/spatial/upload", {
         method: "POST",
@@ -55,11 +73,13 @@ export default function SpatialUploadPortalPage() {
         body: JSON.stringify({
           restaurantId: "demo-restaurant-id",
           fileSizeBytes: selectedFile.size,
+          mimeType: selectedFile.type || "image/jpeg",
+          uploadedGlbUrl: blobUrl,
           telemetry: {
             focalLength: 52,
-            frameRate: 60,
             hasLidarDepthMap: true,
-            deviceModel: "iPhone 15 Pro Max / LiDAR Spatial Scanner",
+            mediaType: "panorama_360",
+            deviceModel: "360° Spherical Panoramic Camera",
           },
         }),
       });
@@ -69,12 +89,12 @@ export default function SpatialUploadPortalPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Spatial upload failed.");
+        throw new Error(data.error || "360° Panoramic upload failed.");
       }
 
       setUploadResult(data);
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to process spatial video upload.");
+      setErrorMsg(err.message || "Failed to process 360° panoramic upload.");
     } finally {
       setIsUploading(false);
     }
@@ -87,12 +107,12 @@ export default function SpatialUploadPortalPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/partner" className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500 text-white font-bold shadow-lg shadow-orange-500/30">
-              <Sparkles size={22} />
+              <Camera size={22} />
             </div>
             <div>
               <span className="text-xl font-black tracking-tight text-white">DineFlow</span>
               <span className="ml-2 rounded-full bg-orange-500/20 px-3 py-0.5 text-xs font-black text-orange-400 border border-orange-500/30">
-                3D SPATIAL DIGITIZATION
+                360° PANORAMIC DIGITAL TWIN
               </span>
             </div>
           </Link>
@@ -103,25 +123,25 @@ export default function SpatialUploadPortalPage() {
         </div>
       </header>
 
-      {/* Main Form Body */}
+      {/* Main Content */}
       <section className="mx-auto max-w-4xl px-6 py-12">
         <Link
-          href="/partner/settings"
+          href="/partner/floor-plan"
           className="mb-8 inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition"
         >
-          <ArrowLeft size={16} /> Back to Partner Dashboard
+          <ArrowLeft size={16} /> Back to Floor Map & Dashboard
         </Link>
 
         <div className="rounded-[2.5rem] border border-slate-800 bg-[#09111e] p-8 md:p-12 shadow-2xl space-y-8">
           <div className="text-center max-w-2xl mx-auto space-y-3">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-orange-500/10 text-orange-400 border border-orange-500/20">
-              <Video size={32} />
+              <Camera size={32} />
             </div>
             <h1 className="text-3xl md:text-4xl font-black text-white">
-              Autonomous 3D Spatial Video Capture
+              360° Panoramic Digital Twin Upload
             </h1>
             <p className="text-sm text-slate-400">
-              Upload smartphone video sweeps or LiDAR mesh scans of your restaurant interior to auto-generate a high-fidelity 3D Digital Twin floor map.
+              Upload equirectangular 360° photos or spherical panorama sweeps of your restaurant interior to deploy an interactive inside-out digital twin tour.
             </p>
           </div>
 
@@ -137,66 +157,89 @@ export default function SpatialUploadPortalPage() {
                 <CheckCircle2 size={32} />
               </div>
               <div>
-                <h3 className="text-2xl font-black text-white">Spatial AI Reconstruction Complete!</h3>
+                <h3 className="text-2xl font-black text-white">
+                  360° Digital Twin Published Successfully!
+                </h3>
                 <p className="text-xs text-slate-300 mt-2">
-                  Generated 3D GLB model and discovered 18 interactive table nodes with Draco geometry compression.
+                  Your equirectangular panorama has been stored and deployed to your live 360° digital twin floor map.
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-left font-mono text-xs text-emerald-400 overflow-x-auto">
-                <p>Model URL: {uploadResult.spatialModelUrl}</p>
-                <p>Discovered Nodes: {uploadResult.metadata?.nodeCount} table meshes</p>
-                <p>Draco Compressed: Yes</p>
-              </div>
-
-              <div className="flex justify-center gap-4">
+              <div className="flex justify-center gap-4 pt-2">
                 <button
-                  onClick={() => setUploadResult(null)}
-                  className="rounded-2xl border border-slate-700 bg-slate-800 px-6 py-3 text-xs font-bold text-white hover:bg-slate-700"
+                  onClick={() => {
+                    setUploadResult(null);
+                    setSelectedFile(null);
+                    setPreviewUrl(null);
+                  }}
+                  className="rounded-2xl border border-slate-700 bg-slate-800 px-6 py-3.5 text-xs font-bold text-white hover:bg-slate-700 transition"
                 >
-                  Upload Another Capture
+                  Upload Another 360° Photo
                 </button>
                 <Link
-                  href="/partner/settings"
-                  className="rounded-2xl bg-orange-500 px-6 py-3 text-xs font-black text-white hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                  href="/partner/floor-plan"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3.5 text-xs font-black text-white hover:bg-orange-600 shadow-xl shadow-orange-500/20 transition"
                 >
-                  Configure 3D Table Node Mappings
+                  <Eye size={16} /> Preview 360° Interactive Room
                 </Link>
               </div>
             </div>
           ) : (
             <form onSubmit={handleStartUpload} className="space-y-6">
-              {/* Drag & Drop Upload Zone */}
+              {/* Dropzone Area */}
               <div className="relative flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-700 bg-slate-900/50 p-10 text-center hover:border-orange-500 transition group cursor-pointer">
                 <input
                   type="file"
-                  accept="video/*,.glb,.gltf"
+                  accept="image/jpeg,image/png,image/jpg,video/mp4,video/quicktime"
                   onChange={handleFileChange}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  className="absolute inset-0 opacity-0 cursor-pointer z-10"
                 />
 
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500/10 text-orange-400 group-hover:scale-110 transition">
-                  <UploadCloud size={36} />
-                </div>
+                {previewUrl ? (
+                  <div className="space-y-4 text-center">
+                    <div className="relative mx-auto h-36 w-64 overflow-hidden rounded-2xl border border-orange-500/40 shadow-xl">
+                      <img
+                        src={previewUrl}
+                        alt="360 Panorama Preview"
+                        className="h-full w-full object-cover"
+                      />
+                      <span className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2.5 py-1 text-[10px] font-bold text-emerald-400 backdrop-blur-md">
+                        360° Ready
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-white">
+                        {selectedFile?.name}
+                      </p>
+                      <p className="text-[11px] text-emerald-400 font-bold mt-1 flex items-center justify-center gap-1">
+                        <CheckCircle2 size={14} /> 360° Equirectangular Photo Ready for Deployment
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500/10 text-orange-400 group-hover:scale-110 transition">
+                      <UploadCloud size={36} />
+                    </div>
 
-                <h3 className="mt-4 text-base font-black text-white">
-                  {selectedFile ? selectedFile.name : "Choose video sweep or drop file here"}
-                </h3>
+                    <h3 className="mt-4 text-base font-black text-white">
+                      {selectedFile ? selectedFile.name : "Choose 360° photo or drag & drop here"}
+                    </h3>
 
-                <p className="mt-1 text-xs text-slate-400">
-                  {selectedFile
-                    ? `File size: ${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB`
-                    : "MP4, MOV, GLB or GLTF files up to 2GB supported"}
-                </p>
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      Supports JPG, PNG equirectangular panorama photos or MP4 video sweeps up to 2GB
+                    </p>
+                  </>
+                )}
               </div>
 
-              {/* Upload Progress Bar */}
+              {/* Progress Bar */}
               {isUploading && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs font-bold text-slate-300">
                     <span className="flex items-center gap-2">
-                      <Cpu size={14} className="animate-spin text-orange-500" />
-                      AI Reconstruction in progress...
+                      <Loader2 size={14} className="animate-spin text-orange-500" />
+                      Deploying 360° Digital Twin Panorama...
                     </span>
                     <span>{uploadProgress}%</span>
                   </div>
@@ -216,10 +259,10 @@ export default function SpatialUploadPortalPage() {
                 className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 py-4 text-xs font-black text-white hover:bg-orange-600 shadow-xl shadow-orange-500/20 disabled:opacity-50 transition"
               >
                 {isUploading ? (
-                  <span>Processing Gaussian Splatting & Draco Mesh...</span>
+                  <span>Processing 360° Spatial Panorama...</span>
                 ) : (
                   <>
-                    <Sparkles size={18} /> Process Autonomous 3D Spatial Reconstruction
+                    <Sparkles size={18} /> Publish 360° Panoramic Digital Twin
                   </>
                 )}
               </button>
