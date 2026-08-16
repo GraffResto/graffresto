@@ -3,9 +3,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { TableMeshController, SpatialTableNode, TableStatus } from "./TableMeshController";
 import BookingModal from "./BookingModal";
-import { Sparkles, Maximize2, Layers, RefreshCw, Eye } from "lucide-react";
+import { Sparkles, Maximize2, Layers, RefreshCw, Eye, Move3d } from "lucide-react";
 
 interface Restaurant3DViewerProps {
   restaurantId: string;
@@ -25,33 +26,39 @@ export default function Restaurant3DViewer({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [webGlSupported, setWebGlSupported] = useState(true);
   const [hoveredTableName, setHoveredTableName] = useState<string | null>(null);
+  const [isLoadingModel, setIsLoadingModel] = useState(false);
 
   // Table Mesh Registry
   const [tableNodes, setTableNodes] = useState<SpatialTableNode[]>([
-    { nodeName: "Table_01", mappedTableId: "t1", tableName: "Table 1", seats: 4, status: "available" },
-    { nodeName: "Table_02", mappedTableId: "t2", tableName: "Table 2", seats: 4, status: "available" },
-    { nodeName: "Table_03", mappedTableId: "t3", tableName: "Table 3", seats: 4, status: "occupied" },
-    { nodeName: "Table_04", mappedTableId: "t4", tableName: "Table 4", seats: 2, status: "available" },
+    { nodeName: "Table_01", mappedTableId: "t1", tableName: "Table 1 (Window)", seats: 4, status: "available" },
+    { nodeName: "Table_02", mappedTableId: "t2", tableName: "Table 2 (Center)", seats: 4, status: "available" },
+    { nodeName: "Table_03", mappedTableId: "t3", tableName: "Table 3 (Booth)", seats: 4, status: "occupied" },
+    { nodeName: "Table_04", mappedTableId: "t4", tableName: "Table 4 (Couples)", seats: 2, status: "available" },
     { nodeName: "Table_05", mappedTableId: "t5", tableName: "Table 5 (VIP)", seats: 8, status: "pending" },
-    { nodeName: "Table_06", mappedTableId: "t6", tableName: "Table 6", seats: 6, status: "available" },
-    { nodeName: "Table_07", mappedTableId: "t7", tableName: "Table 7", seats: 4, status: "occupied" },
-    { nodeName: "Table_08", mappedTableId: "t8", tableName: "Table 8", seats: 4, status: "available" },
+    { nodeName: "Table_06", mappedTableId: "t6", tableName: "Table 6 (Terrace)", seats: 6, status: "available" },
+    { nodeName: "Table_07", mappedTableId: "t7", tableName: "Table 7 (Bar Side)", seats: 4, status: "occupied" },
+    { nodeName: "Table_08", mappedTableId: "t8", tableName: "Table 8 (Garden View)", seats: 4, status: "available" },
   ]);
 
   useEffect(() => {
     if (!mountRef.current) return;
+
+    // Check if there is a locally uploaded GLB model in localStorage or passed props
+    const localUploadedUrl = typeof window !== "undefined" ? localStorage.getItem("last_uploaded_3d_glb") : null;
+    const activeModelUrl = localUploadedUrl || (spatialModelUrl && !spatialModelUrl.includes("storage.googleapis.com") ? spatialModelUrl : null);
 
     const width = mountRef.current.clientWidth;
     const height = mountRef.current.clientHeight;
 
     // 1. Scene & Camera Setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060c14);
+    scene.background = new THREE.Color(0x0a0f1d);
+    scene.fog = new THREE.FogExp2(0x0a0f1d, 0.018);
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(0, 18, 22);
+    camera.position.set(0, 16, 26);
 
-    // 2. WebGL Renderer with Performance Optimizations
+    // 2. WebGL Renderer with Performance Optimizations & Shadows
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -65,79 +72,237 @@ export default function Restaurant3DViewer({
       return;
     }
 
-    // 3. OrbitControls with Polar Constraints
+    // 3. OrbitControls with Polar & Distance Constraints
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2.1; // Limit angle to prevent underground inversion
-    controls.minDistance = 8;
-    controls.maxDistance = 40;
-    controls.target.set(0, 0, 0);
+    controls.maxPolarAngle = Math.PI / 2.15; // Prevent camera underground inversion
+    controls.minDistance = 6;
+    controls.maxDistance = 45;
+    controls.target.set(0, 1, 0);
 
-    // 4. Lighting Engine
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    // 4. Warm Architectural Lighting Engine
+    const ambientLight = new THREE.AmbientLight(0xfff5ea, 0.8);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffaa44, 1.2);
-    dirLight.position.set(15, 25, 15);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    scene.add(dirLight);
+    // Warm ceiling spot lights
+    const mainSpot = new THREE.SpotLight(0xffb77d, 2.5);
+    mainSpot.position.set(0, 22, 5);
+    mainSpot.angle = Math.PI / 3;
+    mainSpot.penumbra = 0.8;
+    mainSpot.castShadow = true;
+    mainSpot.shadow.mapSize.width = 2048;
+    mainSpot.shadow.mapSize.height = 2048;
+    scene.add(mainSpot);
 
-    // 5. Floor Grid Plane
-    const floorGeo = new THREE.PlaneGeometry(36, 28);
+    const fillLight = new THREE.DirectionalLight(0x7dd3fc, 0.6);
+    fillLight.position.set(-15, 18, -10);
+    scene.add(fillLight);
+
+    // 5. Realistic Wood Floor & Interior Walls
+    const floorGeo = new THREE.PlaneGeometry(40, 32);
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      roughness: 0.8,
-      metalness: 0.2,
+      color: 0x1e1b18, // Warm dark mahogany wood
+      roughness: 0.35,
+      metalness: 0.1,
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.rotation.x = -Math.PI / 2;
     floorMesh.receiveShadow = true;
     scene.add(floorMesh);
 
-    // Grid lines helper
-    const gridHelper = new THREE.GridHelper(36, 18, 0xf97316, 0x1e293b);
-    gridHelper.position.y = 0.01;
-    scene.add(gridHelper);
+    // Subtle floor border walls for interior realistic feel
+    const backWallGeo = new THREE.BoxGeometry(40, 6, 0.5);
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+    const backWall = new THREE.Mesh(backWallGeo, wallMat);
+    backWall.position.set(0, 3, -16);
+    scene.add(backWall);
 
-    // 6. Generate 3D Table Node Meshes
+    // Decorative Bar Counter at back wall
+    const barGeo = new THREE.BoxGeometry(16, 2.4, 2);
+    const barMat = new THREE.MeshStandardMaterial({ color: 0x331900, roughness: 0.4 });
+    const barMesh = new THREE.Mesh(barGeo, barMat);
+    barMesh.position.set(0, 1.2, -14);
+    barMesh.castShadow = true;
+    barMesh.receiveShadow = true;
+    scene.add(barMesh);
+
+    // Bar LED strip back-glow
+    const barLed = new THREE.PointLight(0xf97316, 2, 12);
+    barLed.position.set(0, 2.5, -14);
+    scene.add(barLed);
+
     const interactiveMeshes: THREE.Mesh[] = [];
 
-    const positions = [
-      [-10, 0, -6],
-      [-3, 0, -6],
-      [4, 0, -6],
-      [11, 0, -6],
-      [-10, 0, 5],
-      [-3, 0, 5],
-      [4, 0, 5],
-      [11, 0, 5],
-    ];
+    // Helper: Build a Detailed Realistic 3D Dining Table with Chairs
+    const createDetailedTable = (
+      node: SpatialTableNode,
+      x: number,
+      z: number,
+      isRectangular: boolean = false
+    ) => {
+      const tableGroup = new THREE.Group();
+      tableGroup.position.set(x, 0, z);
 
-    tableNodes.forEach((node, idx) => {
-      const pos = positions[idx] || [0, 0, 0];
-      const tableGeo = new THREE.CylinderGeometry(1.8, 1.8, 1.2, 32);
+      // Table Top Mesh (Wood or Marble)
+      let topGeo: THREE.BufferGeometry;
+      if (isRectangular) {
+        topGeo = new THREE.BoxGeometry(3.6, 0.2, 2.4);
+      } else {
+        topGeo = new THREE.CylinderGeometry(1.6, 1.6, 0.2, 32);
+      }
+
       const tableMat = new THREE.MeshStandardMaterial();
-      const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+      const topMesh = new THREE.Mesh(topGeo, tableMat);
+      topMesh.position.y = 1.6;
+      topMesh.castShadow = true;
+      topMesh.receiveShadow = true;
 
-      tableMesh.position.set(pos[0], 0.6, pos[2]);
-      tableMesh.castShadow = true;
-      tableMesh.receiveShadow = true;
-
-      // Attach metadata for raycasting
-      tableMesh.userData = {
+      topMesh.userData = {
         isTableNode: true,
         nodeData: node,
       };
 
-      TableMeshController.applyStatusMaterial(tableMesh, node.status);
-      scene.add(tableMesh);
-      interactiveMeshes.push(tableMesh);
-    });
+      TableMeshController.applyStatusMaterial(topMesh, node.status);
+      tableGroup.add(topMesh);
+      interactiveMeshes.push(topMesh);
 
-    // 7. Raycasting Controller Setup
+      // Central Table Leg / Pedestal
+      const legGeo = new THREE.CylinderGeometry(0.2, 0.4, 1.5, 16);
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8 });
+      const legMesh = new THREE.Mesh(legGeo, legMat);
+      legMesh.position.y = 0.75;
+      legMesh.castShadow = true;
+      tableGroup.add(legMesh);
+
+      // Table Base Plate
+      const baseGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.1, 32);
+      const baseMesh = new THREE.Mesh(baseGeo, legMat);
+      baseMesh.position.y = 0.05;
+      baseMesh.receiveShadow = true;
+      tableGroup.add(baseMesh);
+
+      // Hanging Warm Pendant Light above table
+      const pendantLight = new THREE.PointLight(
+        node.status === "available" ? 0x10b981 : node.status === "occupied" ? 0xef4444 : 0xf59e0b,
+        1.2,
+        6
+      );
+      pendantLight.position.y = 4.2;
+      tableGroup.add(pendantLight);
+
+      // Add 4 Chairs around table
+      const chairOffsets = [
+        [0, 2.2, 0],
+        [0, -2.2, Math.PI],
+        [2.2, 0, Math.PI / 2],
+        [-2.2, 0, -Math.PI / 2],
+      ];
+
+      chairOffsets.slice(0, node.seats).forEach(([cx, cz, rot]) => {
+        const chairGroup = new THREE.Group();
+        chairGroup.position.set(cx, 0, cz);
+        chairGroup.rotation.y = rot;
+
+        // Chair Seat Cushion
+        const seatGeo = new THREE.BoxGeometry(0.9, 0.1, 0.9);
+        const seatMat = new THREE.MeshStandardMaterial({ color: 0x292524, roughness: 0.7 });
+        const seatMesh = new THREE.Mesh(seatGeo, seatMat);
+        seatMesh.position.y = 0.9;
+        seatMesh.castShadow = true;
+        chairGroup.add(seatMesh);
+
+        // Chair Backrest
+        const backGeo = new THREE.BoxGeometry(0.9, 0.9, 0.1);
+        const backMesh = new THREE.Mesh(backGeo, seatMat);
+        backMesh.position.set(0, 1.4, -0.4);
+        backMesh.castShadow = true;
+        chairGroup.add(backMesh);
+
+        // Chair Legs
+        const cLegGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8, 8);
+        const cLegMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        [
+          [-0.35, -0.35],
+          [0.35, -0.35],
+          [-0.35, 0.35],
+          [0.35, 0.35],
+        ].forEach(([lx, lz]) => {
+          const clMesh = new THREE.Mesh(cLegGeo, cLegMat);
+          clMesh.position.set(lx, 0.4, lz);
+          clMesh.castShadow = true;
+          chairGroup.add(clMesh);
+        });
+
+        tableGroup.add(chairGroup);
+      });
+
+      scene.add(tableGroup);
+    };
+
+    // Load actual GLB file if activeModelUrl exists
+    if (activeModelUrl) {
+      setIsLoadingModel(true);
+      const loader = new GLTFLoader();
+      loader.load(
+        activeModelUrl,
+        (gltf) => {
+          setIsLoadingModel(false);
+          const loadedScene = gltf.scene;
+
+          // Auto-calculate model bounding box & center camera
+          const box = new THREE.Box3().setFromObject(loadedScene);
+          const center = box.getCenter(new THREE.Vector3());
+          const size = box.getSize(new THREE.Vector3());
+
+          loadedScene.position.x += loadedScene.position.x - center.x;
+          loadedScene.position.y += loadedScene.position.y - center.y;
+          loadedScene.position.z += loadedScene.position.z - center.z;
+
+          controls.target.copy(center);
+          camera.position.set(center.x, center.y + size.y * 1.5, center.z + size.z * 1.8);
+
+          // Find table meshes using regex pattern matcher
+          const foundMeshes = TableMeshController.traverseSceneGraphAndFindTables(loadedScene);
+          foundMeshes.forEach((mesh, i) => {
+            mesh.userData.isTableNode = true;
+            mesh.userData.nodeData = tableNodes[i % tableNodes.length];
+            TableMeshController.applyStatusMaterial(mesh, mesh.userData.nodeData.status);
+            interactiveMeshes.push(mesh);
+          });
+
+          scene.add(loadedScene);
+        },
+        undefined,
+        (err) => {
+          console.warn("Could not load custom GLB model, rendering high-fidelity 3D hall scene instead.", err);
+          setIsLoadingModel(false);
+          buildDefaultProceduralHall();
+        }
+      );
+    } else {
+      buildDefaultProceduralHall();
+    }
+
+    function buildDefaultProceduralHall() {
+      const tablePositions = [
+        [-11, -7, false],
+        [-3.8, -7, false],
+        [3.8, -7, true],
+        [11, -7, false],
+        [-11, 4, false],
+        [-3.8, 4, true],
+        [3.8, 4, false],
+        [11, 4, true],
+      ];
+
+      tableNodes.forEach((node, idx) => {
+        const [x, z, isRect] = tablePositions[idx] || [0, 0, false];
+        createDetailedTable(node, x as number, z as number, isRect as boolean);
+      });
+    }
+
+    // 6. Raycasting Controller Setup
     const raycasterController = new TableMeshController();
 
     const handlePointerClick = (e: MouseEvent) => {
@@ -184,7 +349,7 @@ export default function Restaurant3DViewer({
     domElem.addEventListener("click", handlePointerClick);
     domElem.addEventListener("mousemove", handlePointerMove);
 
-    // 8. Animation Loop
+    // 7. Animation Loop
     let animFrameId: number;
     const animate = () => {
       animFrameId = requestAnimationFrame(animate);
@@ -219,15 +384,24 @@ export default function Restaurant3DViewer({
       domElem.removeEventListener("click", handlePointerClick);
       domElem.removeEventListener("mousemove", handlePointerMove);
       cancelAnimationFrame(animFrameId);
+      interactiveMeshes.forEach((m) => TableMeshController.disposeMesh(m));
       renderer.dispose();
       if (mountRef.current && renderer.domElement) {
         mountRef.current.removeChild(renderer.domElement);
       }
     };
-  }, [tableNodes]);
+  }, [tableNodes, spatialModelUrl]);
 
   return (
-    <div className="relative w-full h-[540px] rounded-3xl overflow-hidden border border-slate-800 bg-[#060c14]">
+    <div className="relative w-full h-[580px] rounded-[2.5rem] overflow-hidden border border-slate-800 bg-[#060c14] shadow-2xl">
+      {/* Loading Overlay */}
+      {isLoadingModel && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#060c14]/90 backdrop-blur-md text-white space-y-3">
+          <Move3d className="animate-spin text-orange-500" size={36} />
+          <p className="text-sm font-bold">Loading Realistic 3D Restaurant Model...</p>
+        </div>
+      )}
+
       {/* 3D WebGL Canvas */}
       {webGlSupported ? (
         <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
@@ -238,24 +412,24 @@ export default function Restaurant3DViewer({
         </div>
       )}
 
-      {/* Top Floating Controls */}
+      {/* Top Floating Header */}
       <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
-        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 p-3 backdrop-blur-md pointer-events-auto">
-          <Sparkles className="text-orange-500" size={18} />
+        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 p-3.5 backdrop-blur-md pointer-events-auto shadow-xl">
+          <Sparkles className="text-orange-500" size={20} />
           <div>
             <h4 className="text-xs font-black text-white">{restaurantName} 3D Digital Twin</h4>
-            <p className="text-[10px] text-slate-400 font-medium">
+            <p className="text-[11px] text-slate-400 font-medium">
               {hoveredTableName ? (
-                <span className="text-orange-400 font-bold">Targeting: {hoveredTableName}</span>
+                <span className="text-orange-400 font-bold">Selected: {hoveredTableName}</span>
               ) : (
-                "Orbit & Click table mesh to reserve"
+                "Orbit interior • Click table mesh to reserve"
               )}
             </p>
           </div>
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 px-4 py-2 text-[11px] font-bold text-white backdrop-blur-md pointer-events-auto">
+        <div className="flex items-center gap-3 rounded-2xl bg-[#09111e]/90 border border-slate-800 px-4 py-2.5 text-[11px] font-bold text-white backdrop-blur-md pointer-events-auto shadow-xl">
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-[#10B981]" /> Available
           </span>
@@ -269,8 +443,8 @@ export default function Restaurant3DViewer({
       </div>
 
       {/* Bottom Floating Hint */}
-      <div className="absolute bottom-4 left-4 z-10 text-[10px] font-medium text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800 backdrop-blur-md">
-        🖱 Left click + drag to orbit • Scroll to zoom • Right click to pan
+      <div className="absolute bottom-4 left-4 z-10 text-[10px] font-medium text-slate-400 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 backdrop-blur-md">
+        🖱 Left click + drag to rotate • Scroll to zoom • Right click to pan
       </div>
 
       {/* Reservation Bottom Sheet Modal */}
@@ -285,7 +459,6 @@ export default function Restaurant3DViewer({
           tableName={selectedTable.tableName}
           seats={selectedTable.seats}
           onSuccess={(booking) => {
-            // Update table node status to pending/occupied
             setTableNodes((prev) =>
               prev.map((t) =>
                 t.nodeName === selectedTable.nodeName

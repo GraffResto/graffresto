@@ -30,6 +30,14 @@ export default function SpatialUploadPortalPage() {
     setErrorMsg(null);
 
     try {
+      // If user uploaded a .glb or .gltf model directly, create a local Blob URL
+      if (selectedFile.name.endsWith(".glb") || selectedFile.name.endsWith(".gltf")) {
+        const localBlobUrl = URL.createObjectURL(selectedFile);
+        localStorage.setItem("last_uploaded_3d_glb", localBlobUrl);
+      } else {
+        localStorage.removeItem("last_uploaded_3d_glb");
+      }
+
       // Simulate chunked upload & call backend API /api/spatial/upload
       const progressTimer = setInterval(() => {
         setUploadProgress((prev) => {
