@@ -42,6 +42,8 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
 import PartnerSidebar from "@/components/PartnerSidebar";
 import PartnerHeaderActions from "@/components/PartnerHeaderActions";
+import TableMappingPanel from "@/components/partner/TableMappingPanel";
+import { Sparkles } from "lucide-react";
 import {
   auth,
   db,
@@ -64,7 +66,7 @@ export default function PartnerSettingsPage() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
 
   const [activeSubnav, setActiveSubnav] = useState<
-    "general" | "profile" | "hours" | "team" | "notifications" | "billing" | "integrations" | "danger"
+    "general" | "profile" | "hours" | "team" | "notifications" | "billing" | "integrations" | "spatial" | "danger"
   >("general");
 
   // Form State — empty until the restaurant is loaded, so an unset field is
@@ -229,6 +231,7 @@ export default function PartnerSettingsPage() {
               { id: "notifications", label: "Notifications", icon: Bell },
               { id: "billing", label: "Payments & Billing", icon: CreditCard },
               { id: "integrations", label: "Integrations", icon: Layers },
+              { id: "spatial", label: "3D Spatial Mapping", icon: Sparkles },
               { id: "danger", label: "Danger Zone", icon: AlertTriangle, color: "text-red-500" },
             ].map((sub) => {
               const Icon = sub.icon;
@@ -512,6 +515,10 @@ export default function PartnerSettingsPage() {
                   ))}
                 </div>
               </div>
+            )}
+
+            {activeSubnav === "spatial" && (
+              <TableMappingPanel restaurantId={restaurantId || ""} />
             )}
 
             {activeSubnav === "danger" && (

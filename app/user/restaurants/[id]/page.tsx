@@ -7,6 +7,7 @@ import { db, doc, getDoc, collection, query, where, getDocs } from "@/lib/fireba
 import BookingSection from "@/components/BookingSection";
 import LogoutButton from "@/components/LogoutButton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import Restaurant3DViewer from "@/components/spatial/Restaurant3DViewer";
 
 type RestaurantPageProps = {
   params: Promise<{
@@ -184,11 +185,31 @@ export default function UserRestaurantBookingPage({
           </div>
         </div>
 
-        <BookingSection
-          restaurantId={id}
-          tables={tables || []}
-          menuItems={menuItems || []}
-        />
+        {/* 3D Spatial Digital Twin Interactive Experience */}
+        <div className="mt-8 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+              <span>3D Spatial Digital Twin</span>
+              <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-600">
+                Interactive WebGL Floor Map
+              </span>
+            </h2>
+          </div>
+
+          <Restaurant3DViewer
+            restaurantId={id}
+            restaurantName={restaurant.name || "Restaurant"}
+            spatialModelUrl={restaurant.spatial_model_url}
+          />
+        </div>
+
+        <div className="mt-12">
+          <BookingSection
+            restaurantId={id}
+            tables={tables || []}
+            menuItems={menuItems || []}
+          />
+        </div>
       </section>
     </main>
   );
