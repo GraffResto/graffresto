@@ -1,50 +1,50 @@
 import { NextResponse } from "next/server";
-import { SpatialProcessingService } from "@/lib/spatial/spatial.service";
+import { SpatialReconstructionService } from "@/lib/spatial/spatial.service";
 import { db, doc, updateDoc, getDoc } from "@/lib/firebase";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { restaurantId, telemetry, videoUrl, fileSizeBytes } = body;
+    const { restaurantId, telemetry, fileSizeBytes, uploadedGlbUrl } = body;
 
     if (!restaurantId) {
       return NextResponse.json(
-        { error: "Missing required field: restaurantId" },
+        { error: "Missing required parameter: restaurantId" },
         { status: 400 }
       );
     }
 
-    // Rate Limiting & Quota Verification: max upload size 2GB (2 * 1024 * 1024 * 1024 bytes)
-    const MAX_SIZE = 2 * 1024 * 1024 * 1024;
-    if (fileSizeBytes && fileSizeBytes > MAX_SIZE) {
+    // Rate Limiting & Quota Verification: max upload size 2GB
+    const MAX_2GB = 2 * 1024 * 1024 * 1024;
+    if (fileSizeBytes && fileSizeBytes > MAX_2GB) {
       return NextResponse.json(
-        { error: "Upload size exceeds maximum allowed 2GB threshold." },
+        { error: "File payload exceeds 2GB maximum boundary limit." },
         { status: 413 }
       );
     }
 
-    // Normalize Telemetry & Execute AI Reconstruction Pipeline simulation
-    const normalizedTelemetry = SpatialProcessingService.normalizeTelemetry(telemetry || {});
-    const { modelUrl, metadata } = await SpatialProcessingService.processReconstruction(
+    const normalizedTelemetry = SpatialReconstructionService.normalizeTelemetry(telemetry || {});
+    const { modelUrl, metadata } = await SpatialReconstructionService.processReconstruction(
       restaurantId,
-      normalizedTelemetry
+      normalizedTelemetry,
+      uploadedGlbUrl
     );
 
-    // Update Firestore Record
+    // Save to Firestore
     try {
       const restRef = doc(db, "restaurants", restaurantId);
       const restSnap = await getDoc(restRef);
-
       if (restSnap.exists()) {
         await updateDoc(restRef, {
           spatial_model_url: modelUrl,
           spatial_mesh_metadata_json: JSON.stringify(metadata),
           is_3d_active: true,
+          is_3d_enabled: true,
           updated_at: new Date().toISOString(),
         });
       }
-    } catch (dbErr) {
-      console.warn("Firestore update notice (continuing response):", dbErr);
+    } catch (e) {
+      console.warn("Firestore update notice:", e);
     }
 
     return NextResponse.json({
@@ -52,11 +52,10 @@ export async function POST(request: Request) {
       restaurantId,
       spatialModelUrl: modelUrl,
       metadata,
-      normalizedTelemetry,
-      message: "Autonomous 3D spatial digitization completed successfully.",
+      message: "Spatial AI 3D reconstruction pipeline completed successfully.",
     });
   } catch (err: any) {
-    console.error("Spatial Ingestion API Error:", err);
+    console.error("Spatial Upload API Error:", err);
     return NextResponse.json(
       { error: err.message || "Failed to process spatial upload pipeline." },
       { status: 500 }

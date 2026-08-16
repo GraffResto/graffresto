@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { SpatialProcessingService } from "@/lib/spatial/spatial.service";
+import { SpatialReconstructionService } from "@/lib/spatial/spatial.service";
 import { db, doc, setDoc, updateDoc, getDoc, collection } from "@/lib/firebase";
 import { randomUUID } from "node:crypto";
 
@@ -50,8 +50,8 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     });
 
-    const normalizedTelemetry = SpatialProcessingService.normalizeTelemetry(telemetry || {});
-    const { modelUrl, metadata } = await SpatialProcessingService.processReconstruction(
+    const normalizedTelemetry = SpatialReconstructionService.normalizeTelemetry(telemetry || {});
+    const { modelUrl, metadata } = await SpatialReconstructionService.processReconstruction(
       restaurantId || "default-restaurant",
       normalizedTelemetry
     );
