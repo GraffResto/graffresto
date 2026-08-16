@@ -10,6 +10,8 @@
     "make-admin": "node scripts/make-admin.mjs"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.3",
     "firebase": "^12.17.1",

@@ -48,7 +48,21 @@ export default function TableMappingPanel({
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  const [warningMsg, setWarningMsg] = useState<string | null>(null);
+
   function handleSelectMapping(nodeName: string, tableId: string) {
+    setWarningMsg(null);
+    // Task 87: Check for 1-to-1 duplicate bindings
+    const alreadyMappedNode = Object.entries(bindings).find(
+      ([node, tid]) => tid === tableId && node !== nodeName && tableId !== ""
+    );
+
+    if (alreadyMappedNode) {
+      setWarningMsg(
+        `POS Table ID '${tableId}' is already assigned to node '${alreadyMappedNode[0]}'.`
+      );
+    }
+
     setBindings((prev) => ({
       ...prev,
       [nodeName]: tableId,
@@ -58,6 +72,7 @@ export default function TableMappingPanel({
   async function handleSaveMappings() {
     setSaving(true);
     setSaveSuccess(false);
+    setWarningMsg(null);
 
     try {
       if (restaurantId) {

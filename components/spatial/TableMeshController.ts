@@ -26,6 +26,25 @@ export class TableMeshController {
   }
 
   /**
+   * Task 57 & 58: Traversing 3D scene graph and finding table mesh nodes by regex keyword matching.
+   */
+  public static traverseSceneGraphAndFindTables(rootScene: THREE.Object3D): THREE.Mesh[] {
+    const tableMeshPattern = /table|desk|booth|seat|chair|vip|terrace/i;
+    const discoveredTableMeshes: THREE.Mesh[] = [];
+
+    rootScene.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        if (tableMeshPattern.test(object.name) || object.userData?.isTableNode) {
+          object.userData.isTableNode = true;
+          discoveredTableMeshes.push(object);
+        }
+      }
+    });
+
+    return discoveredTableMeshes;
+  }
+
+  /**
    * Casts a ray into the 3D scene graph and resolves targeted table mesh nodes.
    */
   public raycastTableNodes(
@@ -88,5 +107,19 @@ export class TableMeshController {
     }
 
     mesh.material = mat;
+  }
+
+  /**
+   * Memory Cleanup Helper (Task 46 & 51): Dispose mesh geometry & materials on unmount.
+   */
+  public static disposeMesh(mesh: THREE.Mesh) {
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) {
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((m) => m.dispose());
+      } else {
+        mesh.material.dispose();
+      }
+    }
   }
 }

@@ -254,6 +254,7 @@ export default function FloorMapSeatingPage() {
           title="Floor Map"
           subtitle="Live seating status for today"
           actions={
+            <>
               <div className="flex items-center gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1">
                 <button
                   type="button"
