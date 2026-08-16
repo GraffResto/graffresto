@@ -11,6 +11,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PartnerSidebar from "@/components/PartnerSidebar";
 import PartnerHeader from "@/components/PartnerHeader";
+import Restaurant3DViewer from "@/components/spatial/Restaurant3DViewer";
+import { Sparkles, Layers } from "lucide-react";
 import { usePartnerRestaurant } from "@/components/usePartnerRestaurant";
 import {
   auth,
@@ -91,6 +93,7 @@ export default function FloorMapSeatingPage() {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [savingStatus, setSavingStatus] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [viewMode, setViewMode] = useState<"2d" | "3d">("2d");
 
   // Derived rather than stored, so the effect never sets state synchronously
   const isLoading = restaurantLoading || (restaurantId !== null && !dataLoaded);
@@ -251,7 +254,31 @@ export default function FloorMapSeatingPage() {
           title="Floor Map"
           subtitle="Live seating status for today"
           actions={
-            <>
+              <div className="flex items-center gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("2d")}
+                  className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                    viewMode === "2d"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  <Layers size={14} /> 2D Layout
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("3d")}
+                  className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                    viewMode === "3d"
+                      ? "bg-orange-500 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  <Sparkles size={14} /> 3D Digital Twin
+                </button>
+              </div>
+
               <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
                 <Calendar size={14} className="text-orange-500" />
                 <span>{todayLabel || "Today"}</span>
@@ -344,7 +371,12 @@ export default function FloorMapSeatingPage() {
 
           {/* Right: the map itself */}
           <div className="flex-1 flex flex-col justify-between rounded-[2.5rem] border border-slate-800 bg-[#09111e] p-6 space-y-6 overflow-x-auto">
-            {tables.length === 0 ? (
+            {viewMode === "3d" ? (
+              <Restaurant3DViewer
+                restaurantId={restaurantId || ""}
+                restaurantName="Floor Plan 3D Digital Twin"
+              />
+            ) : tables.length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
                 <Users size={36} className="text-slate-600" />
                 <div>
