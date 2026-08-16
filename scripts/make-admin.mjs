@@ -48,6 +48,10 @@ let user;
 try {
   user = await auth.getUserByEmail(email);
   console.log(`Found existing account ${email} (${user.uid}).`);
+  if (password) {
+    await auth.updateUser(user.uid, { password });
+    console.log(`Updated password for ${email}.`);
+  }
 } catch (err) {
   if (err.code !== "auth/user-not-found") throw err;
 
