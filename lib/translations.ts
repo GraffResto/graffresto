@@ -37,6 +37,7 @@ export const translations = {
     loginToBook: "Login to Book",
     noRestaurantsFound: "No restaurants found",
     approvedRestaurantsAppear: "Approved restaurants will appear here.",
+    loadingRestaurants: "Loading restaurants...",
 
     forCustomers: "For Customers",
     customerTitle: "Book after registration",
@@ -63,6 +64,29 @@ export const translations = {
 
     open: "Open",
     closed: "Closed",
+
+    // Auth & Validation
+    forgotPassword: "Forgot password?",
+    resetPasswordTitle: "Reset Password",
+    resetPasswordDesc:
+      "Enter your account email address below to receive an official password reset link.",
+    sendResetLink: "Send Reset Link",
+    sendingResetLink: "Sending reset link...",
+    enterEmailForReset: "Please enter your registered email address.",
+    invalidPhoneError: "Please enter a valid phone number (e.g. +998 90 123 45 67)",
+    invalidEmailError: "Please enter a valid email address",
+    weakPasswordError: "Password must be at least 6 characters long",
+    viewDetails: "View Details & Book",
+
+    // Footer
+    footerDesc:
+      "The next-generation 3D spatial digital twin & table reservation platform for restaurants and guests.",
+    quickLinks: "Quick Links",
+    contactUs: "Contact Us",
+    legal: "Legal",
+    privacyPolicy: "Privacy Policy",
+    termsOfService: "Terms of Service",
+    allRightsReserved: "All rights reserved.",
   },
 
   uz: {
@@ -104,6 +128,7 @@ export const translations = {
     noRestaurantsFound: "Restoran topilmadi",
     approvedRestaurantsAppear:
       "Admin tasdiqlagan restoranlar shu yerda ko‘rinadi.",
+    loadingRestaurants: "Restoranlar yuklanmoqda...",
 
     forCustomers: "Mijozlar uchun",
     customerTitle: "Ro‘yxatdan o‘tgandan keyin bron qiling",
@@ -130,6 +155,30 @@ export const translations = {
 
     open: "Ochiq",
     closed: "Yopiq",
+
+    // Auth & Validation
+    forgotPassword: "Parolni unutdingizmi?",
+    resetPasswordTitle: "Parolni tiklash",
+    resetPasswordDesc:
+      "Parolni tiklash havolasini olish uchun akkauntingiz email manzilini kiriting.",
+    sendResetLink: "Tiklash havolasini yuborish",
+    sendingResetLink: "Havola yuborilmoqda...",
+    enterEmailForReset: "Iltimos, ro'yxatdan o'tgan emailingizni kiriting.",
+    invalidPhoneError:
+      "Iltimos, to'g'ri telefon raqam kiriting (masalan +998 90 123 45 67)",
+    invalidEmailError: "Iltimos, to'g'ri email manzil kiriting",
+    weakPasswordError: "Parol kamida 6 ta belgidan iborat bo'lishi kerak",
+    viewDetails: "Batafsil va bron qilish",
+
+    // Footer
+    footerDesc:
+      "Restoranlar va mehmonlar uchun yangi avlod 3D raqamli egizak va stol bron qilish platformasi.",
+    quickLinks: "Tezkor havolalar",
+    contactUs: "Bog'lanish",
+    legal: "Huquqiy",
+    privacyPolicy: "Maxfiylik siyosati",
+    termsOfService: "Foydalanish shartlari",
+    allRightsReserved: "Barcha huquqlar himoyalangan.",
   },
 
   ru: {
@@ -171,6 +220,7 @@ export const translations = {
     noRestaurantsFound: "Рестораны не найдены",
     approvedRestaurantsAppear:
       "Одобренные рестораны появятся здесь.",
+    loadingRestaurants: "Загрузка ресторанов...",
 
     forCustomers: "Для клиентов",
     customerTitle: "Бронируйте после регистрации",
@@ -197,5 +247,40 @@ export const translations = {
 
     open: "Открыто",
     closed: "Закрыто",
+
+    // Auth & Validation
+    forgotPassword: "Забыли пароль?",
+    resetPasswordTitle: "Сброс пароля",
+    resetPasswordDesc:
+      "Введите email вашего аккаунта для получения ссылки сброса пароля.",
+    sendResetLink: "Отправить ссылку",
+    sendingResetLink: "Отправка ссылки...",
+    enterEmailForReset: "Пожалуйста, введите ваш зарегистрированный email.",
+    invalidPhoneError:
+      "Пожалуйста, введите корректный номер телефона (например +998 90 123 45 67)",
+    invalidEmailError: "Пожалуйста, введите корректный email адрес",
+    weakPasswordError: "Пароль должен содержать минимум 6 символов",
+    viewDetails: "Подробнее и бронировать",
+
+    // Footer
+    footerDesc:
+      "Платформа 3D цифровых двойников и бронирования столов для ресторанов и гостей.",
+    quickLinks: "Быстрые ссылки",
+    contactUs: "Контакты",
+    legal: "Правовая информация",
+    privacyPolicy: "Политика конфиденциальности",
+    termsOfService: "Условия использования",
+    allRightsReserved: "Все права защищены.",
   },
 };
+
+/**
+ * Phone number validation helper.
+ * Returns true if input contains valid digits (7 to 15 digits).
+ */
+export function isValidPhoneNumber(phone: string): boolean {
+  if (!phone || !phone.trim()) return false;
+  const cleaned = phone.replace(/[\s\-\(\)]/g, "");
+  const digitsOnly = cleaned.replace(/^\+/, "");
+  return /^\d{7,15}$/.test(digitsOnly);
+}

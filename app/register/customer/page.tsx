@@ -19,81 +19,13 @@ import {
 } from "@/lib/firebase";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FirebaseConfigNotice from "@/components/FirebaseConfigNotice";
+import Footer from "@/components/Footer";
 import { useLanguage } from "@/components/LanguageProvider";
-
-const customerRegisterText = {
-  en: {
-    title: "Customer Registration",
-    subtitle: "Create your customer account.",
-    sideTitle: "Book smarter with DineFlow",
-    sideText:
-      "Choose restaurants, select your exact table, and pre-order meals before arrival.",
-    back: "Back",
-    fullName: "Full Name",
-    fullNamePlaceholder: "Enter your full name",
-    email: "Email Address",
-    emailPlaceholder: "Enter your email",
-    phone: "Phone Number",
-    phonePlaceholder: "+998 90 123 45 67",
-    password: "Password",
-    passwordPlaceholder: "Create a password",
-    create: "Create Account",
-    googleCreate: "Sign Up with Google",
-    creating: "Creating...",
-    already: "Already have an account?",
-    login: "Login",
-    emptyError: "Please fill in full name, email and password.",
-  },
-  uz: {
-    title: "Mijoz ro‘yxatdan o‘tishi",
-    subtitle: "Mijoz akkauntingizni yarating.",
-    sideTitle: "DineFlow bilan qulayroq bron qiling",
-    sideText:
-      "Restoranlarni tanlang, aniq stolni belgilang va kelishdan oldin ovqat buyurtma qiling.",
-    back: "Orqaga",
-    fullName: "To‘liq ism",
-    fullNamePlaceholder: "To‘liq ismingizni kiriting",
-    email: "Email manzil",
-    emailPlaceholder: "Emailingizni kiriting",
-    phone: "Telefon raqam",
-    phonePlaceholder: "+998 90 123 45 67",
-    password: "Parol",
-    passwordPlaceholder: "Parol yarating",
-    create: "Akkaunt yaratish",
-    googleCreate: "Google bilan ro‘yxatdan o‘tish",
-    creating: "Yaratilmoqda...",
-    already: "Akkauntingiz bormi?",
-    login: "Kirish",
-    emptyError: "To‘liq ism, email va parolni kiriting.",
-  },
-  ru: {
-    title: "Регистрация клиента",
-    subtitle: "Создайте аккаунт клиента.",
-    sideTitle: "Бронируйте удобнее с DineFlow",
-    sideText:
-      "Выбирайте рестораны, конкретный стол и заранее заказывайте блюда.",
-    back: "Назад",
-    fullName: "Полное имя",
-    fullNamePlaceholder: "Введите полное имя",
-    email: "Email адрес",
-    emailPlaceholder: "Введите email",
-    phone: "Номер телефона",
-    phonePlaceholder: "+998 90 123 45 67",
-    password: "Пароль",
-    passwordPlaceholder: "Создайте пароль",
-    create: "Создать аккаунт",
-    googleCreate: "Зарегистрироваться через Google",
-    creating: "Создание...",
-    already: "Уже есть аккаунт?",
-    login: "Войти",
-    emptyError: "Введите полное имя, email и пароль.",
-  },
-};
+import { isValidPhoneNumber } from "@/lib/translations";
 
 export default function CustomerRegisterPage() {
   const router = useRouter();
-  const { language } = useLanguage();
-  const text = customerRegisterText[language];
+  const { t, language } = useLanguage();
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -104,11 +36,22 @@ export default function CustomerRegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  async function handleRegister() {
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
     setMessage("");
 
     if (!fullName || !email || !password) {
-      setMessage(text.emptyError);
+      setMessage("Please fill in full name, email and password.");
+      return;
+    }
+
+    if (!phone || !isValidPhoneNumber(phone)) {
+      setMessage(t.invalidPhoneError);
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage(t.weakPasswordError);
       return;
     }
 
@@ -117,11 +60,11 @@ export default function CustomerRegisterPage() {
     try {
       let uid = "";
       try {
-        const res = await createUserWithEmailAndPassword(auth, email, password);
+        const res = await createUserWithEmailAndPassword(auth, email.trim(), password);
         uid = res.user.uid;
       } catch (signUpErr: any) {
         if (signUpErr?.code === "auth/email-already-in-use") {
-          const signInRes = await signInWithEmailAndPassword(auth, email, password);
+          const signInRes = await signInWithEmailAndPassword(auth, email.trim(), password);
           uid = signInRes.user.uid;
         } else {
           throw signUpErr;
@@ -129,7 +72,7 @@ export default function CustomerRegisterPage() {
       }
 
       await createUserProfile(uid, {
-        email,
+        email: email.trim(),
         full_name: fullName,
         phone,
         role: "customer",
@@ -138,7 +81,7 @@ export default function CustomerRegisterPage() {
       try {
         await setDoc(doc(db, "users", uid), {
           uid,
-          email,
+          email: email.trim(),
           full_name: fullName,
           phone,
           role: "customer",
@@ -148,7 +91,6 @@ export default function CustomerRegisterPage() {
         console.warn("Secondary users collection sync notice:", e);
       }
 
-      // Firebase owns the verification link; no code is minted client-side.
       if (auth.currentUser) {
         try {
           await sendEmailVerification(auth.currentUser);
@@ -157,7 +99,7 @@ export default function CustomerRegisterPage() {
         }
       }
 
-      router.push(`/auth/check-email?email=${encodeURIComponent(email)}`);
+      router.push(`/auth/check-email?email=${encodeURIComponent(email.trim())}`);
       router.refresh();
     } catch (error: any) {
       console.error("Registration error:", error);
@@ -190,177 +132,121 @@ export default function CustomerRegisterPage() {
   }
 
   return (
-    <main className="grid min-h-screen bg-white lg:grid-cols-[0.9fr_1.1fr]">
-      <section className="relative hidden overflow-hidden bg-gray-950 lg:block">
-        <img
-          src="https://images.unsplash.com/photo-1529156069898-49953e39b3ac?q=80&w=1200&auto=format&fit=crop"
-          alt="Customer"
-          className="h-full w-full object-cover opacity-65"
-        />
-
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-
-        <div className="absolute bottom-12 left-12 right-12 text-white">
-          <h1 className="text-5xl font-black leading-tight">
-            {text.sideTitle}
-          </h1>
-
-          <p className="mt-5 max-w-lg text-lg leading-8 text-white/80">
-            {text.sideText}
-          </p>
-        </div>
-      </section>
-
-      <section className="flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-xl">
-          <div className="mb-8 flex items-center justify-between">
-            <Link href="/" className="inline-flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 text-white">
-                <Utensils size={18} />
-              </div>
-              <span className="text-xl font-black">DineFlow</span>
-            </Link>
-
-            <LanguageSwitcher />
-          </div>
-
-          <Link
-            href="/register"
-            className="mb-6 flex items-center gap-2 font-semibold text-gray-600 hover:text-orange-600"
-          >
-            <ArrowLeft size={18} />
-            {text.back}
+    <div className="min-h-screen bg-[#fffaf5] flex flex-col justify-between">
+      <header className="border-b border-orange-100 bg-white">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-white">
+              <Utensils size={18} />
+            </div>
+            <span className="text-xl font-black text-gray-950">DineFlow</span>
           </Link>
 
-          <h1 className="text-3xl font-black text-gray-950">{text.title}</h1>
+          <LanguageSwitcher />
+        </div>
+      </header>
 
-          <p className="mt-2 text-gray-500">{text.subtitle}</p>
+      <main className="flex-1 py-12 px-6">
+        <div className="mx-auto max-w-md rounded-3xl border border-orange-100 bg-white p-8 shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-black text-gray-950">{t.customerSignUp}</h1>
+            <p className="text-sm text-gray-500">Create your DineFlow customer account</p>
+          </div>
 
-          <form className="mt-6 space-y-5 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-            <FirebaseConfigNotice />
+          <FirebaseConfigNotice />
 
-            <div>
-              <label className="mb-2 block text-sm font-bold text-gray-800">
-                {text.fullName}
-              </label>
-
-              <div className="flex items-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-orange-500">
-                <User size={18} className="text-gray-400" />
-
-                <input
-                  value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
-                  placeholder={text.fullNamePlaceholder}
-                  className="w-full outline-none"
-                />
-              </div>
+          {message && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
+              {message}
             </div>
+          )}
 
+          <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-800">
-                {text.email}
+              <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
+                Full Name
               </label>
-
-              <div className="flex items-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-orange-500">
-                <Mail size={18} className="text-gray-400" />
-
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder={text.emailPlaceholder}
-                  className="w-full outline-none"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-bold text-gray-800">
-                {text.phone}
-              </label>
-
-              <div className="flex items-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-orange-500">
-                <Phone size={18} className="text-gray-400" />
-
-                <input
-                  value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
-                  placeholder={text.phonePlaceholder}
-                  className="w-full outline-none"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-bold text-gray-800">
-                {text.password}
-              </label>
-
               <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder={text.passwordPlaceholder}
-                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="John Doe"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
               />
             </div>
 
-            {message && (
-              <p className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
-                {message}
-              </p>
-            )}
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                required
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+998 90 123 45 67"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
+                Password
+              </label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
+              />
+            </div>
 
             <button
-              type="button"
-              disabled={isLoading || isGoogleLoading}
-              onClick={handleRegister}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-4 font-black text-white hover:bg-orange-600 disabled:opacity-70"
+              type="submit"
+              disabled={isLoading}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 py-4 font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50 transition"
             >
               {isLoading && <Loader2 className="animate-spin" size={18} />}
-              {isLoading ? text.creating : text.create}
+              {isLoading ? "Creating Account..." : t.customerSignUp}
             </button>
 
             <button
               type="button"
-              disabled={isLoading || isGoogleLoading}
               onClick={handleGoogleRegister}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-300 bg-white px-5 py-4 font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+              disabled={isGoogleLoading}
+              className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 font-bold text-gray-800 hover:bg-gray-50 shadow-sm disabled:opacity-50 transition"
             >
-              {isGoogleLoading ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <svg className="h-5 w-5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.14C3.26 21.3 7.31 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.14z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.14c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
-                </svg>
-              )}
-              {text.googleCreate}
+              {isGoogleLoading ? "Connecting..." : "Sign Up with Google"}
             </button>
-
-            <p className="text-center text-sm text-gray-500">
-              {text.already}{" "}
-              <Link href="/login" className="font-black text-orange-600">
-                {text.login}
-              </Link>
-            </p>
           </form>
+
+          <p className="text-center text-xs text-gray-500">
+            Already have an account?{" "}
+            <Link href="/login" className="font-bold text-orange-600 hover:underline">
+              {t.login}
+            </Link>
+          </p>
         </div>
-      </section>
-    </main>
+      </main>
+
+      <Footer />
+    </div>
   );
 }

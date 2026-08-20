@@ -11,8 +11,10 @@ import {
   ShoppingBag,
   Star,
   Users,
+  Loader2,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import RestaurantCard from "@/components/RestaurantCard";
 import { useLanguage } from "@/components/LanguageProvider";
 
@@ -29,9 +31,13 @@ type RestaurantPreview = {
 
 type LandingContentProps = {
   restaurantList: RestaurantPreview[];
+  isLoading?: boolean;
 };
 
-export default function LandingContent({ restaurantList }: LandingContentProps) {
+export default function LandingContent({
+  restaurantList,
+  isLoading = false,
+}: LandingContentProps) {
   const { t } = useLanguage();
 
   const steps = [
@@ -58,241 +64,270 @@ export default function LandingContent({ restaurantList }: LandingContentProps) 
   ];
 
   return (
-    <main className="min-h-screen bg-[#fffaf5]">
-      <Navbar />
+    <main className="min-h-screen bg-[#fffaf5] flex flex-col justify-between">
+      <div>
+        <Navbar />
 
-      <section className="relative overflow-hidden bg-gray-950">
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-45"
-          style={{
-            backgroundImage:
-              "url(https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1600&auto=format&fit=crop)",
-          }}
-        />
+        {/* Hero Section */}
+        <section className="relative overflow-hidden bg-gray-950">
+          <div
+            className="absolute inset-0 bg-cover bg-center opacity-45"
+            style={{
+              backgroundImage:
+                "url(https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1600&auto=format&fit=crop)",
+            }}
+          />
 
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-black/20" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-black/20" />
 
-        <div className="relative mx-auto max-w-7xl px-6 py-24 lg:py-32">
-          <div className="max-w-3xl">
-            <p className="mb-5 inline-flex rounded-full bg-orange-500/20 px-4 py-2 text-sm font-bold text-orange-300">
-              {t.heroBadge}
-            </p>
+          <div className="relative mx-auto max-w-7xl px-6 py-24 lg:py-32">
+            <div className="max-w-3xl">
+              <p className="mb-5 inline-flex rounded-full bg-orange-500/20 px-4 py-2 text-sm font-bold text-orange-300 border border-orange-500/30">
+                {t.heroBadge}
+              </p>
 
-            <h1 className="text-5xl font-black leading-tight tracking-tight text-white md:text-7xl">
-              {t.heroTitle}
-            </h1>
+              <h1 className="text-5xl font-black leading-tight tracking-tight text-white md:text-7xl">
+                {t.heroTitle}
+              </h1>
 
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-gray-200">
-              {t.heroText}
-            </p>
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-gray-200">
+                {t.heroText}
+              </p>
+
+              <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+                <Link
+                  href="/register/customer"
+                  className="rounded-2xl bg-orange-500 px-7 py-4 text-center font-black text-white shadow-lg shadow-orange-950/30 hover:bg-orange-600 transition"
+                >
+                  {t.createCustomerAccount}
+                </Link>
+
+                <Link
+                  href="/register/partner"
+                  className="rounded-2xl border border-white/30 bg-white/10 px-7 py-4 text-center font-black text-white backdrop-blur hover:bg-white/20 transition"
+                >
+                  {t.registerRestaurant}
+                </Link>
+              </div>
+
+              <div className="mt-10 flex flex-wrap gap-5 text-sm font-semibold text-gray-200">
+                <span className="flex items-center gap-2">
+                  <Star className="fill-orange-400 text-orange-400" size={18} />
+                  {t.restaurantDiscovery}
+                </span>
+
+                <span className="flex items-center gap-2">
+                  <Users size={18} />
+                  {t.panelsText}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* How it works section */}
+        <section id="how-it-works" className="mx-auto max-w-7xl px-6 py-16 scroll-mt-20">
+          <div className="text-center">
+            <h2 className="text-3xl font-black text-gray-950">{t.howTitle}</h2>
+            <p className="mt-2 text-gray-600">{t.howSubtitle}</p>
+          </div>
+
+          <div className="mt-10 grid gap-5 md:grid-cols-4">
+            {steps.map((step, index) => (
+              <div
+                key={step.title}
+                className="rounded-3xl border border-orange-100 bg-white p-6 text-center shadow-sm"
+              >
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-500">
+                  <step.icon size={22} />
+                </div>
+
+                <p className="mt-4 text-sm font-black text-orange-500">
+                  {t.step} {index + 1}
+                </p>
+
+                <h3 className="mt-2 font-black text-gray-950">{step.title}</h3>
+
+                <p className="mt-2 text-sm leading-6 text-gray-500">
+                  {step.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Featured Restaurants Section */}
+        <section id="restaurants" className="mx-auto max-w-7xl px-6 py-16 scroll-mt-20">
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-3xl font-black text-gray-950">
+                {t.featuredRestaurants}
+              </h2>
+
+              <p className="mt-2 text-gray-600">
+                {t.featuredRestaurantsText}
+              </p>
+            </div>
+
+            <Link
+              href="/login"
+              className="rounded-2xl bg-gray-950 px-5 py-3 text-center font-black text-white hover:bg-gray-800 transition"
+            >
+              {t.loginToBook}
+            </Link>
+          </div>
+
+          {/* Loading Skeleton state to prevent race condition bug (#3) */}
+          {isLoading ? (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  className="h-80 animate-pulse rounded-3xl border border-orange-100 bg-white p-4 flex flex-col justify-between shadow-sm"
+                >
+                  <div className="h-44 w-full rounded-2xl bg-orange-100/60" />
+                  <div className="space-y-2 mt-4">
+                    <div className="h-5 w-3/4 rounded bg-orange-100/80" />
+                    <div className="h-4 w-1/2 rounded bg-orange-50" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : restaurantList.length === 0 ? (
+            <div className="rounded-3xl border border-orange-100 bg-white p-12 text-center shadow-sm">
+              <h3 className="text-xl font-bold text-gray-950">
+                {t.noRestaurantsFound}
+              </h3>
+
+              <p className="mt-2 text-gray-500">
+                {t.approvedRestaurantsAppear}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              {restaurantList.map((restaurant) => (
+                <RestaurantCard
+                  key={restaurant.id}
+                  {...restaurant}
+                  actionHref="/login"
+                  actionText={t.loginToBook}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Customer & Partner Info Section */}
+        <section
+          id="customers"
+          className="mx-auto grid max-w-7xl gap-8 px-6 py-10 lg:grid-cols-2 scroll-mt-20"
+        >
+          <div className="rounded-[2rem] bg-white p-8 shadow-sm border border-orange-100 flex flex-col justify-between">
+            <div>
+              <p className="font-black text-orange-600">{t.forCustomers}</p>
+
+              <h2 className="mt-3 text-3xl font-black text-gray-950">
+                {t.customerTitle}
+              </h2>
+
+              <p className="mt-4 leading-7 text-gray-600">{t.customerText}</p>
+
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl bg-orange-50 p-5">
+                  <CalendarDays className="text-orange-500" />
+                  <h3 className="mt-3 font-black text-gray-950">
+                    {t.tableBooking}
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    {t.tableBookingText}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-orange-50 p-5">
+                  <ShoppingBag className="text-orange-500" />
+                  <h3 className="mt-3 font-black text-gray-950">
+                    {t.preorderMeals}
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    {t.preorderMealsText}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <Link
+              href="/register/customer"
+              className="mt-8 inline-flex justify-center rounded-2xl bg-orange-500 px-6 py-3.5 font-black text-white hover:bg-orange-600 transition"
+            >
+              {t.createCustomerAccount}
+            </Link>
+          </div>
+
+          <div
+            id="partners"
+            className="rounded-[2rem] bg-gray-950 p-8 text-white shadow-sm flex flex-col justify-between scroll-mt-20"
+          >
+            <div>
+              <p className="font-black text-orange-400">{t.forRestaurants}</p>
+
+              <h2 className="mt-3 text-3xl font-black">{t.partnerTitle}</h2>
+
+              <p className="mt-4 leading-7 text-gray-300">{t.partnerText}</p>
+
+              <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                <div className="rounded-2xl bg-white/10 p-4">
+                  <Map className="text-orange-400" />
+                  <p className="mt-3 text-sm font-bold">{t.floorMap}</p>
+                </div>
+
+                <div className="rounded-2xl bg-white/10 p-4">
+                  <ClipboardList className="text-orange-400" />
+                  <p className="mt-3 text-sm font-bold">{t.menuEditor}</p>
+                </div>
+
+                <div className="rounded-2xl bg-white/10 p-4">
+                  <Building2 className="text-orange-400" />
+                  <p className="mt-3 text-sm font-bold">{t.partnerPanel}</p>
+                </div>
+              </div>
+            </div>
+
+            <Link
+              href="/register/partner"
+              className="mt-8 inline-flex justify-center rounded-2xl bg-orange-500 px-6 py-3.5 font-black text-white hover:bg-orange-600 transition"
+            >
+              {t.registerRestaurant}
+            </Link>
+          </div>
+        </section>
+
+        {/* Final CTA Banner */}
+        <section className="mx-auto max-w-7xl px-6 pb-16">
+          <div className="rounded-[2rem] bg-orange-500 p-8 text-white md:p-12 shadow-xl shadow-orange-500/10">
+            <h2 className="text-3xl font-black">{t.finalCtaTitle}</h2>
+
+            <p className="mt-3 max-w-2xl text-orange-50">{t.finalCtaText}</p>
 
             <div className="mt-8 flex flex-col gap-4 sm:flex-row">
               <Link
                 href="/register/customer"
-                className="rounded-2xl bg-orange-500 px-7 py-4 text-center font-black text-white shadow-lg shadow-orange-950/30 hover:bg-orange-600"
+                className="rounded-2xl bg-white px-6 py-3.5 text-center font-black text-orange-600 hover:bg-orange-50 transition"
               >
-                {t.createCustomerAccount}
+                {t.customerSignUp}
               </Link>
 
               <Link
                 href="/register/partner"
-                className="rounded-2xl border border-white/30 bg-white/10 px-7 py-4 text-center font-black text-white backdrop-blur hover:bg-white/20"
+                className="rounded-2xl border border-white/40 px-6 py-3.5 text-center font-black text-white hover:bg-white/10 transition"
               >
-                {t.registerRestaurant}
+                {t.partnerSignUp}
               </Link>
             </div>
-
-            <div className="mt-10 flex flex-wrap gap-5 text-sm font-semibold text-gray-200">
-              <span className="flex items-center gap-2">
-                <Star className="fill-orange-400 text-orange-400" size={18} />
-                {t.restaurantDiscovery}
-              </span>
-
-              <span className="flex items-center gap-2">
-                <Users size={18} />
-                {t.panelsText}
-              </span>
-            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section id="how-it-works" className="mx-auto max-w-7xl px-6 py-16">
-        <div className="text-center">
-          <h2 className="text-3xl font-black text-gray-950">{t.howTitle}</h2>
-          <p className="mt-2 text-gray-600">{t.howSubtitle}</p>
-        </div>
-
-        <div className="mt-10 grid gap-5 md:grid-cols-4">
-          {steps.map((step, index) => (
-            <div
-              key={step.title}
-              className="rounded-3xl border border-orange-100 bg-white p-6 text-center shadow-sm"
-            >
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-500">
-                <step.icon size={22} />
-              </div>
-
-              <p className="mt-4 text-sm font-black text-orange-500">
-                {t.step} {index + 1}
-              </p>
-
-              <h3 className="mt-2 font-black text-gray-950">{step.title}</h3>
-
-              <p className="mt-2 text-sm leading-6 text-gray-500">
-                {step.text}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="restaurants" className="mx-auto max-w-7xl px-6 py-16">
-        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h2 className="text-3xl font-black text-gray-950">
-              {t.featuredRestaurants}
-            </h2>
-
-            <p className="mt-2 text-gray-600">
-              {t.featuredRestaurantsText}
-            </p>
-          </div>
-
-          <Link
-            href="/login"
-            className="rounded-2xl bg-gray-950 px-5 py-3 text-center font-black text-white hover:bg-gray-800"
-          >
-            {t.loginToBook}
-          </Link>
-        </div>
-
-        {restaurantList.length === 0 ? (
-          <div className="rounded-3xl border border-orange-100 bg-white p-8 text-center shadow-sm">
-            <h3 className="text-xl font-bold text-gray-950">
-              {t.noRestaurantsFound}
-            </h3>
-
-            <p className="mt-2 text-gray-500">
-              {t.approvedRestaurantsAppear}
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {restaurantList.map((restaurant) => (
-              <RestaurantCard
-                key={restaurant.id}
-                {...restaurant}
-                actionHref="/login"
-                actionText={t.loginToBook}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section
-        id="customers"
-        className="mx-auto grid max-w-7xl gap-8 px-6 py-10 lg:grid-cols-2"
-      >
-        <div className="rounded-[2rem] bg-white p-8 shadow-sm">
-          <p className="font-black text-orange-600">{t.forCustomers}</p>
-
-          <h2 className="mt-3 text-3xl font-black text-gray-950">
-            {t.customerTitle}
-          </h2>
-
-          <p className="mt-4 leading-7 text-gray-600">{t.customerText}</p>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl bg-orange-50 p-5">
-              <CalendarDays className="text-orange-500" />
-              <h3 className="mt-3 font-black text-gray-950">
-                {t.tableBooking}
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                {t.tableBookingText}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-orange-50 p-5">
-              <ShoppingBag className="text-orange-500" />
-              <h3 className="mt-3 font-black text-gray-950">
-                {t.preorderMeals}
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                {t.preorderMealsText}
-              </p>
-            </div>
-          </div>
-
-          <Link
-            href="/register/customer"
-            className="mt-8 inline-flex rounded-2xl bg-orange-500 px-6 py-3 font-black text-white hover:bg-orange-600"
-          >
-            {t.createCustomerAccount}
-          </Link>
-        </div>
-
-        <div
-          id="partners"
-          className="rounded-[2rem] bg-gray-950 p-8 text-white shadow-sm"
-        >
-          <p className="font-black text-orange-400">{t.forRestaurants}</p>
-
-          <h2 className="mt-3 text-3xl font-black">{t.partnerTitle}</h2>
-
-          <p className="mt-4 leading-7 text-gray-300">{t.partnerText}</p>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl bg-white/10 p-4">
-              <Map className="text-orange-400" />
-              <p className="mt-3 text-sm font-bold">{t.floorMap}</p>
-            </div>
-
-            <div className="rounded-2xl bg-white/10 p-4">
-              <ClipboardList className="text-orange-400" />
-              <p className="mt-3 text-sm font-bold">{t.menuEditor}</p>
-            </div>
-
-            <div className="rounded-2xl bg-white/10 p-4">
-              <Building2 className="text-orange-400" />
-              <p className="mt-3 text-sm font-bold">{t.partnerPanel}</p>
-            </div>
-          </div>
-
-          <Link
-            href="/register/partner"
-            className="mt-8 inline-flex rounded-2xl bg-orange-500 px-6 py-3 font-black text-white hover:bg-orange-600"
-          >
-            {t.registerRestaurant}
-          </Link>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="rounded-[2rem] bg-orange-500 p-8 text-white md:p-12">
-          <h2 className="text-3xl font-black">{t.finalCtaTitle}</h2>
-
-          <p className="mt-3 max-w-2xl text-orange-50">{t.finalCtaText}</p>
-
-          <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-            <Link
-              href="/register/customer"
-              className="rounded-2xl bg-white px-6 py-3 text-center font-black text-orange-600"
-            >
-              {t.customerSignUp}
-            </Link>
-
-            <Link
-              href="/register/partner"
-              className="rounded-2xl border border-white/40 px-6 py-3 text-center font-black text-white"
-            >
-              {t.partnerSignUp}
-            </Link>
-          </div>
-        </div>
-      </section>
+      <Footer />
     </main>
   );
 }

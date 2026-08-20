@@ -21,6 +21,7 @@ import {
 } from "@/lib/firebase";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useLanguage } from "@/components/LanguageProvider";
+import { isValidPhoneNumber } from "@/lib/translations";
 
 const partnerRegisterText = {
   en: {
@@ -209,7 +210,7 @@ const partnerRegisterText = {
 
 export default function PartnerRegisterPage() {
   const router = useRouter();
-  const { language } = useLanguage();
+  const { t, language } = useLanguage();
   const text = partnerRegisterText[language];
 
   const [step, setStep] = useState(1);
@@ -240,6 +241,11 @@ export default function PartnerRegisterPage() {
       return;
     }
 
+    if (ownerPhone && !isValidPhoneNumber(ownerPhone)) {
+      setMessage(t.invalidPhoneError);
+      return;
+    }
+
     setStep(2);
   }
 
@@ -248,6 +254,11 @@ export default function PartnerRegisterPage() {
 
     if (!restaurantName || !cuisineType || !address) {
       setMessage(text.restaurantError);
+      return;
+    }
+
+    if (restaurantPhone && !isValidPhoneNumber(restaurantPhone)) {
+      setMessage(t.invalidPhoneError);
       return;
     }
 

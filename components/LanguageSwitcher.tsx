@@ -48,6 +48,7 @@ export default function LanguageSwitcher() {
     <div className="relative">
       <button
         type="button"
+        aria-label="Select Language"
         onClick={() => setIsOpen((current) => !current)}
         className="flex items-center gap-2 rounded-xl border border-orange-100 bg-white px-3 py-2 text-sm font-black text-gray-800 shadow-sm hover:bg-orange-50 transition"
       >

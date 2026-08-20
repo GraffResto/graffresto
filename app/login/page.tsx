@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, Loader2, User, Utensils } from "lucide-react";
+import { Building2, Loader2, User, Utensils, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -16,77 +16,12 @@ import {
 } from "@/lib/firebase";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FirebaseConfigNotice from "@/components/FirebaseConfigNotice";
+import Footer from "@/components/Footer";
 import { useLanguage } from "@/components/LanguageProvider";
-
-const loginText = {
-  en: {
-    welcome: "Welcome back",
-    subtitle: "Login to continue to your panel.",
-    customer: "Customer",
-    customerText: "Access bookings and your profile.",
-    partner: "Partner",
-    partnerText: "Manage your restaurant panel after approval.",
-    emailLabel: "Email Address",
-    emailPlaceholder: "you@example.com",
-    passwordLabel: "Password",
-    passwordPlaceholder: "Your password",
-    loginButton: "Login with Email",
-    googleLogin: "Continue with Google",
-    loading: "Logging in...",
-    noAccount: "Don’t have an account?",
-    register: "Register",
-    emptyError: "Please enter email and password.",
-    failedError: "Login failed. Please check your credentials.",
-    profileError: "Profile setup issue.",
-  },
-
-  uz: {
-    welcome: "Xush kelibsiz",
-    subtitle: "Panelingizga kirish uchun login qiling.",
-    customer: "Mijoz",
-    customerText: "Bronlar va profilingizga kiring.",
-    partner: "Hamkor",
-    partnerText: "Tasdiqdan keyin restoran panelingizni boshqaring.",
-    emailLabel: "Email manzil",
-    emailPlaceholder: "you@example.com",
-    passwordLabel: "Parol",
-    passwordPlaceholder: "Parolingiz",
-    loginButton: "Email bilan kirish",
-    googleLogin: "Google bilan kirish",
-    loading: "Kirilmoqda...",
-    noAccount: "Hali akkauntingiz yo‘qmi?",
-    register: "Ro‘yxatdan o‘tish",
-    emptyError: "Email va parolni kiriting.",
-    failedError: "Login amalga oshmadi. Ma'lumotlarni tekshiring.",
-    profileError: "Profil xatoligi.",
-  },
-
-  ru: {
-    welcome: "С возвращением",
-    subtitle: "Войдите, чтобы перейти в свой кабинет.",
-    customer: "Клиент",
-    customerText: "Доступ к бронированиям и профилю.",
-    partner: "Партнёр",
-    partnerText: "Управляйте ресторанным кабинетом после одобрения.",
-    emailLabel: "Email адрес",
-    emailPlaceholder: "you@example.com",
-    passwordLabel: "Пароль",
-    passwordPlaceholder: "Ваш пароль",
-    loginButton: "Войти по Email",
-    googleLogin: "Войти через Google",
-    loading: "Вход...",
-    noAccount: "Нет аккаунта?",
-    register: "Зарегистрироваться",
-    emptyError: "Введите email и пароль.",
-    failedError: "Не удалось войти. Проверьте данные.",
-    profileError: "Ошибка профиля.",
-  },
-};
 
 export default function LoginPage() {
   const router = useRouter();
-  const { language } = useLanguage();
-  const text = loginText[language];
+  const { t } = useLanguage();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -94,21 +29,30 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  // Reset Modal state
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [resetMessage, setResetMessage] = useState("");
   const [resetSuccess, setResetSuccess] = useState(false);
   const [isResetLoading, setIsResetLoading] = useState(false);
 
-  async function handleDirectResetPassword() {
+  function handleOpenResetModal() {
+    setResetEmail(email.trim());
+    setResetMessage("");
+    setResetSuccess(false);
+    setShowResetModal(true);
+  }
+
+  async function handleSendResetEmail(e: React.FormEvent) {
+    e.preventDefault();
     setResetMessage("");
     setResetSuccess(false);
 
-    const targetEmail = (email || resetEmail).trim();
+    const targetEmail = resetEmail.trim();
 
     if (!targetEmail) {
-      setShowResetModal(true);
-      setResetMessage("Please enter your registered email address.");
+      setResetMessage(t.enterEmailForReset);
       return;
     }
 
@@ -120,20 +64,14 @@ export default function LoginPage() {
         handleCodeInApp: false,
       };
 
-      // Firebase sends the reset link itself. The link is the only credential:
-      // never mint a reset code in the browser or store one in Firestore.
       await sendPasswordResetEmail(auth, targetEmail, actionCodeSettings);
 
       setResetSuccess(true);
-      setResetEmail(targetEmail);
       setResetMessage(
         `If ${targetEmail} belongs to a DineFlow account, a password reset link is on its way. Check your inbox and spam folder.`
       );
-      setShowResetModal(true);
     } catch (err: any) {
       console.error("Password reset error:", err);
-
-      // Do not confirm whether an address is registered — that leaks accounts.
       if (err?.code === "auth/user-not-found") {
         setResetSuccess(true);
         setResetMessage(
@@ -141,63 +79,47 @@ export default function LoginPage() {
         );
       } else {
         setResetSuccess(false);
-        setResetMessage(formatAuthError(err, "Failed to send reset email. Verify your email address."));
+        setResetMessage(formatAuthError(err, t.invalidEmailError));
       }
-      setShowResetModal(true);
     } finally {
       setIsResetLoading(false);
     }
   }
 
-  async function handleSendResetEmail(e: React.FormEvent) {
-    e.preventDefault();
-    handleDirectResetPassword();
-  }
+  async function routeUserByRole(uid: string) {
+    try {
+      const profile = await getUserProfile(uid);
 
-  async function handleRedirectByRole(uid: string) {
-    let profile = await getUserProfile(uid);
-    
-    // Fallback default customer profile creation if non-existent
-    if (!profile) {
-      const currUser = auth.currentUser;
-      profile = await createUserProfile(uid, {
-        email: currUser?.email || "",
-        full_name: currUser?.displayName || "User",
-        role: "customer",
-      });
-    }
-
-    if (profile.role === "admin") {
-      router.push("/admin");
-    } else if (profile.role === "partner") {
-      if (profile.partner_status === "approved") {
+      if (profile?.role === "partner") {
         router.push("/partner");
+      } else if (profile?.role === "admin") {
+        router.push("/admin");
       } else {
-        router.push("/partner/pending");
+        router.push("/user");
       }
-    } else {
+      router.refresh();
+    } catch (err) {
+      console.error("Route user error:", err);
       router.push("/user");
     }
-
-    router.refresh();
   }
 
-  async function handleLogin() {
+  async function handleEmailLogin(e: React.FormEvent) {
+    e.preventDefault();
     setMessage("");
 
     if (!email || !password) {
-      setMessage(text.emptyError);
+      setMessage(t.invalidEmailError);
       return;
     }
 
     setIsLoading(true);
-
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      await handleRedirectByRole(userCredential.user.uid);
-    } catch (error: any) {
-      console.error("Login error:", error);
-      setMessage(formatAuthError(error, text.failedError));
+      const res = await signInWithEmailAndPassword(auth, email.trim(), password);
+      await routeUserByRole(res.user.uid);
+    } catch (err: any) {
+      console.error("Login error:", err);
+      setMessage(formatAuthError(err, t.invalidEmailError));
     } finally {
       setIsLoading(false);
     }
@@ -208,165 +130,132 @@ export default function LoginPage() {
     setIsGoogleLoading(true);
 
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      await handleRedirectByRole(result.user.uid);
-    } catch (error: any) {
-      console.error("Google login error:", error);
-      setMessage(formatAuthError(error, text.failedError));
+      const res = await signInWithPopup(auth, googleProvider);
+      let profile = await getUserProfile(res.user.uid);
+
+      if (!profile) {
+        profile = await createUserProfile(res.user.uid, {
+          email: res.user.email || "",
+          full_name: res.user.displayName || "User",
+          role: "customer",
+        });
+      }
+
+      await routeUserByRole(res.user.uid);
+    } catch (err: any) {
+      console.error("Google login error:", err);
+      setMessage(formatAuthError(err, t.invalidEmailError));
     } finally {
       setIsGoogleLoading(false);
     }
   }
 
   return (
-    <main className="grid min-h-screen bg-white lg:grid-cols-[0.9fr_1.1fr]">
-      <section
-        className="hidden bg-cover bg-center lg:block"
-        style={{
-          backgroundImage:
-            "url(https://images.unsplash.com/photo-1514933651103-005eec06c04b?q=80&w=1200&auto=format&fit=crop)",
-        }}
-      />
+    <div className="min-h-screen bg-[#fffaf5] flex flex-col justify-between">
+      <header className="border-b border-orange-100 bg-white">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500 text-white">
+              <Utensils size={18} />
+            </div>
+            <span className="text-xl font-black text-gray-950">DineFlow</span>
+          </Link>
 
-      <section className="flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-xl">
-          <div className="mb-8 flex items-center justify-between">
-            <Link href="/" className="inline-flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 text-white">
-                <Utensils size={18} />
-              </div>
-              <span className="text-xl font-black">DineFlow</span>
-            </Link>
+          <LanguageSwitcher />
+        </div>
+      </header>
 
-            <LanguageSwitcher />
+      <main className="flex-1 py-12 px-6">
+        <div className="mx-auto max-w-md rounded-3xl border border-orange-100 bg-white p-8 shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-black text-gray-950">{t.login}</h1>
+            <p className="text-sm text-gray-500">Access your DineFlow account</p>
           </div>
 
-          <h1 className="text-4xl font-black text-gray-950">
-            {text.welcome}
-          </h1>
+          <FirebaseConfigNotice />
 
-          <p className="mt-2 text-gray-500">{text.subtitle}</p>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
-              <User className="text-orange-500" />
-              <p className="mt-2 font-black text-gray-950">{text.customer}</p>
-              <p className="mt-1 text-sm text-gray-500">
-                {text.customerText}
-              </p>
+          {message && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
+              {message}
             </div>
+          )}
 
-            <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
-              <Building2 className="text-orange-500" />
-              <p className="mt-2 font-black text-gray-950">{text.partner}</p>
-              <p className="mt-1 text-sm text-gray-500">{text.partnerText}</p>
-            </div>
-          </div>
-
-          <form className="mt-6 space-y-5 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-            <FirebaseConfigNotice />
-
+          <form onSubmit={handleEmailLogin} className="space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">
-                {text.emailLabel}
+              <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
+                Email Address
               </label>
-
               <input
                 type="email"
+                required
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder={text.emailPlaceholder}
-                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">
-                {text.passwordLabel}
-              </label>
-
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder={text.passwordPlaceholder}
-                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-orange-500"
-              />
-
-              <div className="mt-2 text-right">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase text-gray-500">
+                  Password
+                </label>
                 <button
                   type="button"
-                  onClick={handleDirectResetPassword}
-                  className="text-xs font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                  onClick={handleOpenResetModal}
+                  className="text-xs font-bold text-orange-600 hover:underline"
                 >
-                  Forgot password? / Забыли пароль?
+                  {t.forgotPassword}
                 </button>
               </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
+              />
             </div>
 
-            {message && (
-              <div className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
-                {message}
-              </div>
-            )}
-
             <button
-              type="button"
-              disabled={isLoading || isGoogleLoading}
-              onClick={handleLogin}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-4 font-black text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70"
+              type="submit"
+              disabled={isLoading}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 py-4 font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50 transition"
             >
               {isLoading && <Loader2 className="animate-spin" size={18} />}
-              {isLoading ? text.loading : text.loginButton}
+              {isLoading ? "Logging in..." : t.login}
             </button>
 
             <button
               type="button"
-              disabled={isLoading || isGoogleLoading}
               onClick={handleGoogleLogin}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-300 bg-white px-5 py-4 font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+              disabled={isGoogleLoading}
+              className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 font-bold text-gray-800 hover:bg-gray-50 shadow-sm disabled:opacity-50 transition"
             >
-              {isGoogleLoading ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <svg className="h-5 w-5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.14C3.26 21.3 7.31 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.14z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.14c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
-                </svg>
-              )}
-              {text.googleLogin}
+              {isGoogleLoading ? "Connecting to Google..." : "Continue with Google"}
             </button>
-
-            <p className="text-center text-sm text-gray-500">
-              {text.noAccount}{" "}
-              <Link href="/register" className="font-black text-orange-600">
-                {text.register}
-              </Link>
-            </p>
           </form>
+
+          <p className="text-center text-xs text-gray-500">
+            Don't have an account?{" "}
+            <Link href="/register/customer" className="font-bold text-orange-600 hover:underline">
+              {t.customerSignUp}
+            </Link>{" "}
+            or{" "}
+            <Link href="/register/partner" className="font-bold text-orange-600 hover:underline">
+              {t.partnerSignUp}
+            </Link>
+          </p>
         </div>
-      </section>
+      </main>
 
       {/* Password Reset Modal */}
       {showResetModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-orange-100 bg-white p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-black text-gray-900">Reset Password</h2>
+              <h2 className="text-2xl font-black text-gray-900">{t.resetPasswordTitle}</h2>
               <button
                 type="button"
                 onClick={() => {
@@ -374,20 +263,20 @@ export default function LoginPage() {
                   setResetMessage("");
                   setResetSuccess(false);
                 }}
-                className="rounded-full bg-gray-100 p-2 text-gray-500 hover:bg-gray-200"
+                className="rounded-full bg-gray-100 p-2 text-gray-500 hover:bg-gray-200 transition"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-sm font-medium text-gray-600">
-              Enter your account email address below to receive an official password reset link.
+            <p className="text-xs font-medium text-gray-600 leading-relaxed">
+              {t.resetPasswordDesc}
             </p>
 
             <form onSubmit={handleSendResetEmail} className="space-y-4">
               <div>
                 <label className="mb-2 block text-xs font-bold uppercase text-gray-500">
-                  Account Email Address
+                  Email Address
                 </label>
                 <input
                   type="email"
@@ -395,7 +284,7 @@ export default function LoginPage() {
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   placeholder="name@example.com"
-                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 font-bold text-gray-900 outline-none focus:border-orange-500"
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 font-bold text-gray-900 outline-none focus:border-orange-500"
                 />
               </div>
 
@@ -415,23 +304,25 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowResetModal(false)}
-                  className="rounded-2xl bg-gray-100 px-5 py-3 text-sm font-bold text-gray-700 hover:bg-gray-200"
+                  className="rounded-2xl bg-gray-100 px-5 py-3 text-xs font-bold text-gray-700 hover:bg-gray-200 transition"
                 >
                   Close
                 </button>
                 <button
                   type="submit"
                   disabled={isResetLoading}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-sm font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-xs font-black text-white hover:bg-orange-600 shadow-md shadow-orange-500/20 disabled:opacity-50 transition"
                 >
                   {isResetLoading && <Loader2 className="animate-spin" size={16} />}
-                  {isResetLoading ? "Sending..." : "Resend reset link"}
+                  {isResetLoading ? t.sendingResetLink : t.sendResetLink}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-    </main>
+
+      <Footer />
+    </div>
   );
 }
